@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebCAD — minimal online CAD & sharing (single file)</title>
+  <!-- Import map so bare specifier "three" resolves in browser -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <style>
+    :root{ --bg:#0f1115;--panel:#151923;--muted:#2a3040;--text:#eef2ff;--sub:#b3bdde;--accent:#6aa0ff;--ok:#36d399;--warn:#f59e0b;--err:#ef4444 }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    #app{display:grid;grid-template-columns:280px 1fr 300px;grid-template-rows:auto 1fr auto;height:100vh}
+    header,footer{grid-column:1/-1;background:var(--panel);border-bottom:1px solid var(--muted);display:flex;align-items:center;gap:8px;padding:8px 12px}
+    footer{border-top:1px solid var(--muted);border-bottom:none}
+    .panel{background:var(--panel);border-right:1px solid var(--muted);padding:10px;overflow:auto}
+    .right{border-left:1px solid var(--muted);border-right:none}
+    #viewport{position:relative}
+    canvas{display:block;width:100%;height:100%}
+    h3{margin:.4rem 0 .6rem;font-size:13px;color:var(--sub);text-transform:uppercase;letter-spacing:.08em}
+    .btn{appearance:none;border:1px solid var(--muted);background:#111423;color:#fff;padding:8px 10px;border-radius:10px;cursor:pointer}
+    .btn:hover{border-color:#3a4258}
+    .btn.primary{background:var(--accent);border-color:var(--accent);color:#081224}
+    .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    input[type="number"],input[type="text"],input[type="color"],select{width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--muted);background:#0e1322;color:var(--text)}
+    label{font-size:12px;color:var(--sub)}
+    .section{padding:8px;border:1px solid var(--muted);border-radius:12px;margin:8px 0}
+    .kbd{border:1px solid var(--muted);background:#0e1322;border-radius:6px;padding:2px 6px;font-family:ui-monospace, Menlo, monospace;color:var(--sub)}
+    .tag{padding:4px 6px;border:1px solid var(--muted);border-radius:6px;color:var(--sub)}
+    .divider{height:1px;background:var(--muted);margin:8px 0}
+    a{color:var(--accent);text-decoration:none}
+    .danger{color:var(--err)}
+    .test-pass{color:var(--ok)} .test-fail{color:var(--err)}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <strong>WebCAD</strong>
+      <span class="tag">3D</span>
+      <span class="tag">Shareable</span>
+      <div style="flex:1"></div>
+      <span class="sub">Controls:</span>
+      <span class="kbd">Left‑drag</span> orbit
+      <span class="kbd">Wheel</span> zoom
+      <span class="kbd">Right‑drag</span> pan
+      <span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span> Translate/Rotate/Scale
+      <span class="kbd">Del</span> delete
+    </header>
+
+    <aside class="panel">
+      <h3>Add primitives</h3>
+      <div class="row" style="flex-wrap:wrap;gap:6px">
+        <button class="btn" data-add="sphere">Sphere</button>
+        <button class="btn" data-add="box">Box</button>
+        <button class="btn" data-add="cylinder">Cylinder</button>
+        <button class="btn" data-add="plane">Plane</button>
+      </div>
+
+      <div class="divider"></div>
+      <h3>Scene</h3>
+      <div class="row">
+        <button id="fitBtn" class="btn">Fit view</button>
+        <button id="resetBtn" class="btn">Reset</button>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="gridToggle" checked> Grid</label>
+        <label><input type="checkbox" id="snapToggle"> Snap 0.5</label>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="orthoToggle"> Orthographic</label>
+      </div>
+      <div class="section">
+        <h3>Mode</h3>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <button class="btn" id="modeT">Translate (1)</button>
+          <button class="btn" id="modeR">Rotate (2)</button>
+          <button class="btn" id="modeS">Scale (3)</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Selection</h3>
+        <div id="selNone">No object selected.</div>
+        <div id="selUI" style="display:none">
+          <div class="row"><label>Name</label><input id="inpName" type="text"></div>
+          <h4 style="margin:.4rem 0 0">Transform</h4>
+          <div class="grid">
+            <div><label>Pos X</label><input id="posX" type="number" step="0.1"></div>
+            <div><label>Pos Y</label><input id="posY" type="number" step="0.1"></div>
+            <div><label>Pos Z</label><input id="posZ" type="number" step="0.1"></div>
+            <div><label>Rot X°</label><input id="rotX" type="number" step="1"></div>
+            <div><label>Rot Y°</label><input id="rotY" type="number" step="1"></div>
+            <div><label>Rot Z°</label><input id="rotZ" type="number" step="1"></div>
+            <div><label>Scale X</label><input id="sX" type="number" step="0.1" value="1"></div>
+            <div><label>Scale Y</label><input id="sY" type="number" step="0.1" value="1"></div>
+            <div><label>Scale Z</label><input id="sZ" type="number" step="0.1" value="1"></div>
+          </div>
+          <div class="divider"></div>
+          <h4 style="margin:.4rem 0 0">Geometry</h4>
+          <div id="geoUI"></div>
+          <div class="divider"></div>
+          <h4 style="margin:.4rem 0 0">Material</h4>
+          <div class="grid">
+            <div><label>Color</label><input id="matColor" type="color" value="#6aa0ff"></div>
+            <div><label>Wireframe</label><input id="matWire" type="checkbox"></div>
+            <div><label>Metalness</label><input id="matMetal" type="number" step="0.1" min="0" max="1" value="0.1"></div>
+            <div><label>Roughness</label><input id="matRough" type="number" step="0.1" min="0" max="1" value="0.7"></div>
+          </div>
+          <div class="row"><button id="deleteBtn" class="btn danger">Delete</button></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Import / Export</h3>
+        <div class="row"><button id="exportPNG" class="btn">Export PNG</button></div>
+        <div class="row"><button id="exportJSON" class="btn">Download .webcad</button><input id="importJSON" type="file" accept=".json,.webcad"></div>
+        <div class="row"><button id="shareBtn" class="btn primary">Copy share link</button></div>
+        <small class="sub">Sharing packs the scene into the URL hash. Load restores automatically.</small>
+      </div>
+    </aside>
+
+    <main id="viewport"></main>
+
+    <aside class="panel right">
+      <h3>Help</h3>
+      <ul>
+        <li>Click objects to select. Use gizmo to edit.</li>
+        <li>Numeric inputs update on Enter or blur.</li>
+        <li>Snapping applies to gizmo moves.</li>
+      </ul>
+      <div class="divider"></div>
+      <h3>Project info</h3>
+      <div id="stats"></div>
+      <div class="divider"></div>
+      <h3>Tests</h3>
+      <ul id="tests"></ul>
+      <div class="divider"></div>
+      <h3>About</h3>
+      <p>Single‑file CAD built on <a href="https://threejs.org/" target="_blank" rel="noreferrer">three.js</a>. No backend required.</p>
+    </aside>
+
+    <footer>
+      <span id="hint" class="sub">Ready.</span>
+      <div style="flex:1"></div>
+      <span class="sub">v0.3.7</span>
+    </footer>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js?module';
+    import { TransformControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/TransformControls.js?module';
+
+    // --- Robust guard for environments that call material.onBuild ---
+    if (typeof THREE.Material.prototype.onBuild !== 'function') {
+      THREE.Material.prototype.onBuild = function () {};
+    }
+    function patchMaterial(mat){
+      if (!mat) return;
+      if (Array.isArray(mat)) { for (const m of mat) patchMaterial(m); return; }
+      if (typeof mat.onBuild !== 'function') mat.onBuild = function(){};
+    }
+    function patchAllMaterials(root){
+      root.traverse(obj=>{ if ('material' in obj && obj.material) patchMaterial(obj.material); });
+    }
+
+    const clamp01 = (x)=> Math.min(1, Math.max(0, x||0));
+
+    // ----- Clipboard-safe share helpers -----
+    function makeShareURL(){
+      const data = serialize();
+      const str = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(data)))));
+      return location.origin + location.pathname + '#scene=' + str;
+    }
+    async function copyTextSafe(text){
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          return { ok:true, method:'clipboard' };
+        }
+      } catch (_) {}
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly','');
+        ta.style.position='fixed'; ta.style.top='-9999px'; ta.style.left='-9999px';
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) return { ok:true, method:'execCommand' };
+      } catch (_) {}
+      try { window.prompt('Copy link:', text); } catch(_) {}
+      return { ok:false, method:'manual' };
+    }
+
+    const el = {
+      viewport: document.getElementById('viewport'),
+      gridToggle: document.getElementById('gridToggle'),
+      snapToggle: document.getElementById('snapToggle'),
+      orthoToggle: document.getElementById('orthoToggle'),
+      fitBtn: document.getElementById('fitBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      modeT: document.getElementById('modeT'),
+      modeR: document.getElementById('modeR'),
+      modeS: document.getElementById('modeS'),
+      selNone: document.getElementById('selNone'),
+      selUI: document.getElementById('selUI'),
+      inpName: document.getElementById('inpName'),
+      posX: pos('X'), posY: pos('Y'), posZ: pos('Z'),
+      rotX: rot('X'), rotY: rot('Y'), rotZ: rot('Z'),
+      sX: s('X'), sY: s('Y'), sZ: s('Z'),
+      geoUI: document.getElementById('geoUI'),
+      matColor: document.getElementById('matColor'),
+      matWire: document.getElementById('matWire'),
+      matMetal: document.getElementById('matMetal'),
+      matRough: document.getElementById('matRough'),
+      deleteBtn: document.getElementById('deleteBtn'),
+      exportPNG: document.getElementById('exportPNG'),
+      exportJSON: document.getElementById('exportJSON'),
+      importJSON: document.getElementById('importJSON'),
+      shareBtn: document.getElementById('shareBtn'),
+      stats: document.getElementById('stats'),
+      hint: document.getElementById('hint'),
+      tests: document.getElementById('tests'),
+    };
+    function pos(a){ return document.getElementById('pos'+a) }
+    function rot(a){ return document.getElementById('rot'+a) }
+    function s(a){ return document.getElementById('s'+a) }
+
+    // Scene + renderer
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f1115);
+    const renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+    renderer.setPixelRatio(devicePixelRatio);
+    el.viewport.appendChild(renderer.domElement);
+
+    // Cameras
+    const perspective = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+    perspective.position.set(7,6,9);
+    const orthographic = new THREE.OrthographicCamera(-8,8,6,-6, -100, 1000);
+    orthographic.position.copy(perspective.position);
+    let camera = perspective;
+
+    // Controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true; controls.dampingFactor = .06;
+    controls.target.set(0,1,0);
+
+    // Helpers + lights
+    const grid = new THREE.GridHelper(40, 80, 0x31405d, 0x1e2636); grid.material.opacity=.8; grid.material.transparent=true; scene.add(grid);
+    const axes = new THREE.AxesHelper(2); axes.position.y=0.01; scene.add(axes);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, .8); scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, .8); dir.position.set(5,10,4); scene.add(dir);
+
+    // Picking
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    // Transform gizmo
+    const xform = new TransformControls(camera, renderer.domElement);
+    xform.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+    xform.addEventListener('objectChange', ()=>{ commit('transform'); });
+    xform.setSize(0.9);
+    scene.add(xform);
+
+    // State
+    const objs = [];
+    let selected = null;
+
+    // History and clipboard
+    const history = [];
+    const redoStack = [];
+    let suppressCommit = false; // avoid loops during deserialize
+    let appClipboard = null; // internal clipboard payload
+
+    function commit(label='change'){
+      if (suppressCommit) return;
+      history.push(serialize());
+      if (history.length > 50) history.shift();
+      redoStack.length = 0;
+      el.hint.textContent = `Saved: ${label}`;
+    }
+    function undo(){
+      if (history.length < 2) return false;
+      const cur = history.pop();
+      redoStack.push(cur);
+      suppressCommit = true; deserialize(history[history.length-1]); suppressCommit = false;
+      el.hint.textContent = 'Undone';
+      return true;
+    }
+    function redo(){
+      if (!redoStack.length) return false;
+      const state = redoStack.pop();
+      history.push(state);
+      suppressCommit = true; deserialize(state); suppressCommit = false;
+      el.hint.textContent = 'Redone';
+      return true;
+    }
+
+    function copySelected(){
+      if(!selected) return false;
+      const m = selected;
+      appClipboard = { v:1, items:[{ kind:m.userData.kind, params:{...m.userData.params}, name:m.userData.name+' copy', pos:m.position.toArray(), rot:[m.rotation.x,m.rotation.y,m.rotation.z], scl:m.scale.toArray(), mat:{ color:m.material.color.getHex(), wire:!!m.material.wireframe, metal:m.material.metalness, rough:m.material.roughness } }] };
+      el.hint.textContent = 'Copied to internal clipboard';
+      return true;
+    }
+    function pasteClipboard(){
+      if(!appClipboard || !Array.isArray(appClipboard.items)) return false;
+      const it = appClipboard.items[0];
+      const k = kinds[it.kind]; if(!k) return false;
+      const geo = k.create(it.params);
+      const mat = new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 });
+      patchMaterial(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData = { kind:it.kind, params:{...it.params}, name:it.name };
+      mesh.position.fromArray(it.pos||[0,0,0]).add(new THREE.Vector3(0.5,0,0.5));
+      mesh.rotation.set(...(it.rot||[0,0,0]));
+      mesh.scale.fromArray(it.scl||[1,1,1]);
+      scene.add(mesh); objs.push(mesh); select(mesh); updateStats();
+      commit('paste');
+      return true;
+    }
+
+    // Geometry factory
+    const kinds = {
+      box: { label:'Box', defaults:{ w:1, h:1, d:1 }, create:(p)=> new THREE.BoxGeometry(p.w,p.h,p.d), ui:[['w','Width'],['h','Height'],['d','Depth']] },
+      sphere: { label:'Sphere', defaults:{ r:0.6, seg:32 }, create:(p)=> new THREE.SphereGeometry(p.r, Math.max(8,p.seg|0), Math.max(6,(p.seg/2)|0)), ui:[['r','Radius'],['seg','Segments']] },
+      cylinder: { label:'Cylinder', defaults:{ rTop:0.5, rBot:0.5, h:1.4, seg:24 }, create:(p)=> new THREE.CylinderGeometry(p.rTop,p.rBot,p.h, Math.max(6,p.seg|0)), ui:[['rTop','Top R'],['rBot','Bottom R'],['h','Height'],['seg','Segments']] },
+      plane: { label:'Plane', defaults:{ w:2, h:2 }, create:(p)=> new THREE.PlaneGeometry(p.w,p.h).rotateX(-Math.PI/2), ui:[['w','Width'],['h','Height']] },
+    };
+
+    function addObject(kind){
+      const k = kinds[kind]; if(!k) return;
+      const params = {...k.defaults};
+      const geo = k.create(params);
+      const mat = new THREE.MeshStandardMaterial({ color:0x6aa0ff, metalness:.1, roughness:.7 });
+      patchMaterial(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = k.label==='Plane'? 0 : params.h? params.h/2 : (params.r || params.rBot || .5);
+      mesh.userData = { kind, params, name: `${k.label} ${objs.length+1}` };
+      scene.add(mesh);
+      objs.push(mesh);
+      select(mesh);
+      updateStats();
+      commit('add '+kind);
+    }
+
+    // UI add buttons
+    function handleAddClick(e){ e.preventDefault(); e.stopPropagation(); const k=e.currentTarget?.dataset?.add; if(!kinds[k]){ el.hint.textContent='Add failed'; return;} addObject(k); el.hint.textContent=`Added ${kinds[k].label}.`; }
+    document.querySelectorAll('[data-add]').forEach(b=> b.addEventListener('click', handleAddClick));
+
+    // Selection
+    renderer.domElement.addEventListener('pointerdown', onPick);
+    function onPick(e){
+      if (xform.dragging || xform.axis) return; // do not deselect while dragging gizmo
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+      mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(objs, false);
+      if(hits[0]) select(hits[0].object); else select(null);
+    }
+
+    function select(mesh){
+      selected = mesh;
+      xform.detach();
+      if(!mesh){ el.selNone.style.display='block'; el.selUI.style.display='none'; return }
+      patchMaterial(mesh.material);
+      xform.attach(mesh);
+      el.selNone.style.display='none'; el.selUI.style.display='block';
+      refreshInspector();
+    }
+
+    function refreshInspector(){
+      if(!selected) return;
+      const ud = selected.userData;
+      el.inpName.value = ud.name || '';
+      el.posX.value = selected.position.x.toFixed(3);
+      el.posY.value = selected.position.y.toFixed(3);
+      el.posZ.value = selected.position.z.toFixed(3);
+      el.rotX.value = THREE.MathUtils.radToDeg(selected.rotation.x).toFixed(1);
+      el.rotY.value = THREE.MathUtils.radToDeg(selected.rotation.y).toFixed(1);
+      el.rotZ.value = THREE.MathUtils.radToDeg(selected.rotation.z).toFixed(1);
+      el.sX.value = selected.scale.x.toFixed(3);
+      el.sY.value = selected.scale.y.toFixed(3);
+      el.sZ.value = selected.scale.z.toFixed(3);
+      const mat = selected.material; patchMaterial(mat);
+      el.matColor.value = '#'+mat.color.getHexString();
+      el.matWire.checked = !!mat.wireframe;
+      el.matMetal.value = mat.metalness.toFixed(2);
+      el.matRough.value = mat.roughness.toFixed(2);
+      const k = kinds[ud.kind];
+      el.geoUI.innerHTML = '';
+      for(const [key,label] of k.ui){
+        const wrap = document.createElement('div');
+        wrap.className = 'row';
+        wrap.innerHTML = `<div style="flex:1"><label>${label}</label><input data-geo="${key}" type="number" step="0.1" value="${ud.params[key]}"></div>`;
+        el.geoUI.appendChild(wrap);
+      }
+      el.geoUI.querySelectorAll('input[data-geo]').forEach(inp=> inp.addEventListener('change', ()=>{
+        const key = inp.dataset.geo; let v = parseFloat(inp.value);
+        if(Number.isNaN(v)) return; if(key==='seg') v = Math.max(3, v|0);
+        selected.userData.params[key]=v; rebuildGeometry(selected);
+      }));
+    }
+
+    function rebuildGeometry(mesh){
+      const {kind, params} = mesh.userData;
+      const geo = kinds[kind].create(params);
+      mesh.geometry.dispose(); mesh.geometry = geo;
+      updateStats();
+      commit('geometry');
+    }
+
+    // Inspector bindings
+    function bindNumber(input, apply){ input.addEventListener('change', ()=>{ const v=parseFloat(input.value); if(!selected||Number.isNaN(v)) return; apply(v); commit('inspector'); }); }
+    bindNumber(el.posX, v=> selected.position.x = snapMaybe(v));
+    bindNumber(el.posY, v=> selected.position.y = snapMaybe(v));
+    bindNumber(el.posZ, v=> selected.position.z = snapMaybe(v));
+    bindNumber(el.rotX, v=> selected.rotation.x = THREE.MathUtils.degToRad(v));
+    bindNumber(el.rotY, v=> selected.rotation.y = THREE.MathUtils.degToRad(v));
+    bindNumber(el.rotZ, v=> selected.rotation.z = THREE.MathUtils.degToRad(v));
+    bindNumber(el.sX, v=> selected.scale.x = v);
+    bindNumber(el.sY, v=> selected.scale.y = v);
+    bindNumber(el.sZ, v=> selected.scale.z = v);
+    el.inpName.addEventListener('change', ()=>{ if(selected) selected.userData.name = el.inpName.value });
+    el.matColor.addEventListener('input', ()=>{ if(selected){ selected.material.color.set(el.matColor.value); commit('material'); }});
+    el.matWire.addEventListener('change', ()=>{ if(selected){ selected.material.wireframe = el.matWire.checked; commit('material'); }});
+    el.matMetal.addEventListener('change', ()=>{ if(selected){ selected.material.metalness = clamp01(parseFloat(el.matMetal.value)); commit('material'); }});
+    el.matRough.addEventListener('change', ()=>{ if(selected){ selected.material.roughness = clamp01(parseFloat(el.matRough.value)); commit('material'); }});
+    el.deleteBtn.addEventListener('click', ()=>{ if(!selected) return; const victim = selected; scene.remove(victim); const i=objs.indexOf(victim); if(i>=0) objs.splice(i,1); select(null); updateStats(); commit('delete'); });
+
+    // Modes
+    function setMode(m){ xform.setMode(m); el.hint.textContent = `Mode: ${m}.`; }
+    el.modeT.addEventListener('click', ()=> setMode('translate'));
+    el.modeR.addEventListener('click', ()=> setMode('rotate'));
+    el.modeS.addEventListener('click', ()=> setMode('scale'));
+    addEventListener('keydown', e=>{
+      const tag = (e.target && e.target.tagName) || '';
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+      const mod = e.ctrlKey || e.metaKey;
+      if(mod && !inInput){
+        const k = e.key.toLowerCase();
+        if(k==='z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
+        if((k==='z' && e.shiftKey) || k==='y'){ e.preventDefault(); redo(); return; }
+        if(k==='c'){ e.preventDefault(); copySelected(); return; }
+        if(k==='v'){ e.preventDefault(); pasteClipboard(); return; }
+        if(k==='d'){ e.preventDefault(); copySelected(); pasteClipboard(); return; }
+      }
+      if(!inInput && (e.key==='Backspace' || e.key==='Delete')){ e.preventDefault(); if(selected){ el.deleteBtn.click(); } }
+      if(!inInput){ if(e.key==='1') setMode('translate'); if(e.key==='2') setMode('rotate'); if(e.key==='3') setMode('scale'); }
+    });
+
+    // Snap
+    function snapMaybe(v){ return el.snapToggle.checked ? Math.round(v/0.5)*0.5 : v }
+    xform.setTranslationSnap(0.5);
+    xform.setRotationSnap(THREE.MathUtils.degToRad(15));
+    xform.setScaleSnap(0.1);
+    function updateXformSnap(){ const on = el.snapToggle.checked; xform.setTranslationSnap(on?0.5:null); xform.setRotationSnap(on?THREE.MathUtils.degToRad(15):null); xform.setScaleSnap(on?0.1:null); }
+    el.snapToggle.addEventListener('change', updateXformSnap);
+
+    // View ops
+    el.fitBtn.addEventListener('click', ()=> fitView());
+    el.resetBtn.addEventListener('click', ()=> resetScene());
+    function fitView(){
+      const box = new THREE.Box3(); objs.forEach(m=> box.expandByObject(m));
+      if(box.isEmpty()) { controls.target.set(0,1,0); camera.position.set(7,6,9); return }
+      const size = box.getSize(new THREE.Vector3()).length() * 0.6;
+      const center = box.getCenter(new THREE.Vector3());
+      controls.target.copy(center);
+      const dirV = new THREE.Vector3(1,0.8,1).normalize();
+      camera.position.copy(center.clone().add(dirV.multiplyScalar(size)));
+    }
+    function resetScene(){ for(const m of objs) scene.remove(m); objs.length=0; select(null); updateStats(); camera.position.set(7,6,9); controls.target.set(0,1,0); scene.background.set(0x0f1115); }
+
+    // Camera switch
+    el.orthoToggle.addEventListener('change', ()=>{ const pos = camera.position.clone(); const tgt = controls.target.clone(); camera = el.orthoToggle.checked? orthographic : perspective; camera.position.copy(pos); controls.object = camera; xform.camera = camera; controls.target.copy(tgt); onResize(); });
+
+    // Export / Share
+    el.exportPNG.addEventListener('click', ()=>{ const a=document.createElement('a'); a.download='render.png'; a.href=renderer.domElement.toDataURL('image/png'); a.click(); });
+    el.shareBtn.addEventListener('click', async ()=>{
+      const url = makeShareURL();
+      const res = await copyTextSafe(url);
+      el.hint.textContent = res.ok ? `Share link copied (${res.method}).` : 'Copy blocked. Link shown in prompt.';
+    });
+    el.exportJSON.addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(serialize(),null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='project.webcad'; a.click(); });
+    el.importJSON.addEventListener('change', (e)=>{ const f=e.target.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ deserialize(JSON.parse(r.result)); }catch{ alert('Invalid file'); } }; r.readAsText(f); });
+
+    // Serialize
+    function serialize(){ return { v:1, items: objs.map(m=>({ kind:m.userData.kind, params:m.userData.params, name:m.userData.name, pos:m.position.toArray(), rot:[m.rotation.x,m.rotation.y,m.rotation.z], scl:m.scale.toArray(), mat:{ color:m.material.color.getHex(), wire:!!m.material.wireframe, metal:m.material.metalness, rough:m.material.roughness } })) } }
+    function deserialize(data){ resetScene(); if(!data||!Array.isArray(data.items)) return; for(const it of data.items){ const k=kinds[it.kind]; if(!k) continue; const geo=k.create(it.params); const mat=new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 }); patchMaterial(mat); const mesh=new THREE.Mesh(geo,mat); scene.add(mesh); objs.push(mesh); mesh.userData={kind:it.kind, params:it.params, name:it.name}; mesh.position.fromArray(it.pos||[0,0,0]); mesh.rotation.set(...(it.rot||[0,0,0])); mesh.scale.fromArray(it.scl||[1,1,1]); } updateStats(); fitView(); }
+
+    // Stats
+    function updateStats(){ const tris = objs.reduce((t,m)=> t + (m.geometry.index? m.geometry.index.count/3 : m.geometry.attributes.position.count/3), 0); el.stats.innerHTML = `${objs.length} objects<br>${Math.round(tris).toLocaleString()} triangles`; }
+
+    // Resize
+    function onResize(){ const w = el.viewport.clientWidth, h = el.viewport.clientHeight; renderer.setSize(w,h,false); if(camera.isPerspectiveCamera){ camera.aspect = w/h; camera.updateProjectionMatrix(); } if(camera.isOrthographicCamera){ const v=6, ar=w/h; camera.left=-v*ar; camera.right=v*ar; camera.top=v; camera.bottom=-v; camera.updateProjectionMatrix(); } }
+    addEventListener('resize', onResize, {passive:true}); onResize();
+
+    // Default scene when no hash
+    if(!location.hash){ addObject('sphere'); fitView(); el.hint.textContent='Default sphere created.'; }
+    // Seed initial history state
+    history.push(serialize());
+    // Load from URL hash if present
+    if(location.hash.startsWith('#scene=')){
+      try{ const raw = location.hash.slice(7); const json = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(raw))))); deserialize(json); el.hint.textContent = 'Scene loaded from URL.'; }catch(e){ console.warn('Failed to load scene from URL', e); }
+    }
+
+    // Animate
+    renderer.setAnimationLoop(()=>{ controls.update(); patchAllMaterials(scene); dir.position.set(camera.position.x, camera.position.y, camera.position.z).normalize().multiplyScalar(10); renderer.render(scene, camera); });
+
+    // -------- Tests (smoke) --------
+    function recordTest(name, ok, note=''){ const li=document.createElement('li'); li.textContent = name + (note? ' — '+note : ''); li.className = ok? 'test-pass' : 'test-fail'; el.tests.appendChild(li); }
+    try{
+      const beforeAdd = objs.length; addObject('box'); addObject('sphere'); recordTest('Add primitives', objs.length-beforeAdd>=2);
+      const saved = serialize(); const n = saved.items.length; deserialize(saved); recordTest('Serialize/deserialize', objs.length===n);
+      const png = renderer.domElement.toDataURL('image/png'); recordTest('PNG export data URL', typeof png==='string' && png.startsWith('data:image/png'));
+      select(objs[0]); recordTest('Selection + gizmo', !!selected && xform.object===selected);
+      let renderedOK = true; try { renderer.render(scene, camera); } catch(e) { renderedOK = false; } recordTest('Single render without error', renderedOK);
+      const btn = document.querySelector('[data-add="cylinder"]'); const c0=objs.length; btn && btn.dispatchEvent(new MouseEvent('click',{bubbles:true})); recordTest('Add button click works', objs.length===c0+1);
+      const beforeSel = selected; xform.axis='X'; try{ onPick({clientX:0,clientY:0}); }catch{} xform.axis=null; recordTest('Gizmo drag does not deselect', selected===beforeSel);
+      // Materials
+      let allOnBuild = true; scene.traverse(o=>{ if(o.material){ const mats = Array.isArray(o.material)? o.material : [o.material]; for(const m of mats){ if(typeof m.onBuild !== 'function') allOnBuild=false; } }}); recordTest('All materials have onBuild', allOnBuild);
+      const prevWF = objs[0].material.wireframe; objs[0].material.wireframe = !prevWF; let wfOK = true; try{ renderer.render(scene, camera); }catch(e){ wfOK=false; } recordTest('Wireframe toggle safe', wfOK);
+      // Share URL
+      const testUrl = makeShareURL(); recordTest('Share URL is string', typeof testUrl==='string' && testUrl.includes('#scene='));
+      copyTextSafe('webcad-test').then(r=>{ recordTest('Clipboard fallback does not throw', r.ok || r.method==='manual'); }).catch(()=>{ recordTest('Clipboard fallback does not throw', false); });
+      // New: Keyboard shortcuts
+      const beforeCopy = objs.length; select(objs[objs.length-1]); const cOK = copySelected(); const pOK = pasteClipboard(); recordTest('Copy/Paste increases count', cOK && pOK && objs.length===beforeCopy+1);
+      const countAfterAdd = objs.length; const uOK = undo(); recordTest('Undo restores count', uOK && objs.length < countAfterAdd);
+      const rOK = redo(); recordTest('Redo reapplies change', rOK && objs.length === countAfterAdd);
+    }catch(err){ recordTest('Unexpected error during tests', false, String(err)); console.error(err); }
+  </script>
+</body>
+</html>
