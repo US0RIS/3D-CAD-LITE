@@ -77,6 +77,17 @@
       <div class="row">
         <label><input type="checkbox" id="orthoToggle"> Orthographic</label>
       </div>
+
+      <div class="section">
+        <h3>Physics</h3>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <label><input type="checkbox" id="physicsEnable"> Enabled</label>
+          <button class="btn" id="physicsPlay">Play</button>
+          <input id="gravity" type="number" step="0.1" value="-9.8" title="Gravity (m/s^2)" />
+          <button class="btn" id="dropBtn" title="Drop selected with zero velocity">Drop selected</button>
+        </div>
+      </div>
+
       <div class="section">
         <h3>Mode</h3>
         <div class="row" style="gap:6px;flex-wrap:wrap">
@@ -87,7 +98,7 @@
       </div>
 
       <div class="section">
-        <h3>Selection</h3>
+        <h3>Selection</h3</h3>
         <div id="selNone">No object selected.</div>
         <div id="selUI" style="display:none">
           <div class="row"><label>Name</label><input id="inpName" type="text"></div>
@@ -229,6 +240,11 @@
       stats: document.getElementById('stats'),
       hint: document.getElementById('hint'),
       tests: document.getElementById('tests'),
+      // Physics UI
+      physicsEnable: document.getElementById('physicsEnable'),
+      physicsPlay: document.getElementById('physicsPlay'),
+      gravity: document.getElementById('gravity'),
+      dropBtn: document.getElementById('dropBtn'),
     };
     function pos(a){ return document.getElementById('pos'+a) }
     function rot(a){ return document.getElementById('rot'+a) }
@@ -266,7 +282,7 @@
     // Transform gizmo
     const xform = new TransformControls(camera, renderer.domElement);
     xform.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
-    xform.addEventListener('objectChange', ()=>{ commit('transform'); });
+    xform.addEventListener('objectChange', ()=>{ commit('transform'); const b=selected?.userData?.body; if(b){ b.v.set(0,0,0);} });
     xform.setSize(0.9);
     scene.add(xform);
 
@@ -344,7 +360,7 @@
       patchMaterial(mat);
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = k.label==='Plane'? 0 : params.h? params.h/2 : (params.r || params.rBot || .5);
-      mesh.userData = { kind, params, name: `${k.label} ${objs.length+1}` };
+      mesh.userData = { kind, params, name: `${k.label} ${objs.length+1}`, body: makeBody(kind) };
       scene.add(mesh);
       objs.push(mesh);
       select(mesh);
@@ -495,10 +511,71 @@
 
     // Serialize
     function serialize(){ return { v:1, items: objs.map(m=>({ kind:m.userData.kind, params:m.userData.params, name:m.userData.name, pos:m.position.toArray(), rot:[m.rotation.x,m.rotation.y,m.rotation.z], scl:m.scale.toArray(), mat:{ color:m.material.color.getHex(), wire:!!m.material.wireframe, metal:m.material.metalness, rough:m.material.roughness } })) } }
-    function deserialize(data){ resetScene(); if(!data||!Array.isArray(data.items)) return; for(const it of data.items){ const k=kinds[it.kind]; if(!k) continue; const geo=k.create(it.params); const mat=new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 }); patchMaterial(mat); const mesh=new THREE.Mesh(geo,mat); scene.add(mesh); objs.push(mesh); mesh.userData={kind:it.kind, params:it.params, name:it.name}; mesh.position.fromArray(it.pos||[0,0,0]); mesh.rotation.set(...(it.rot||[0,0,0])); mesh.scale.fromArray(it.scl||[1,1,1]); } updateStats(); fitView(); }
+    function deserialize(data){
+      resetScene();
+      if(!data||!Array.isArray(data.items)) return;
+      for(const it of data.items){
+        if(it.kind==='cloth'){
+          spawnCloth({ w:it.params?.w??4, h:it.params?.h??4, segX:it.params?.segX??24, segY:it.params?.segY??24, y:(it.pos?.[1]??3) });
+          continue;
+        }
+        const k=kinds[it.kind]; if(!k) continue;
+        const geo=k.create(it.params);
+        const mat=new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 });
+        patchMaterial(mat);
+        const mesh=new THREE.Mesh(geo,mat);
+        scene.add(mesh); objs.push(mesh);
+        mesh.userData={kind:it.kind, params:it.params, name:it.name, body: makeBody(it.kind)};
+        mesh.position.fromArray(it.pos||[0,0,0]);
+        mesh.rotation.set(...(it.rot||[0,0,0]));
+        mesh.scale.fromArray(it.scl||[1,1,1]);
+      }
+      updateStats();
+      fitView();
+    }
+
+    // Physics helpers
+    let physicsRunning = false;
+    function makeBody(kind){
+      return { v:new THREE.Vector3(), mass:1, dynamic: kind!=='plane', restitution:0.5 };
+    }
+    function getBoundingRadius(mesh){
+      if(!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+      const r = mesh.geometry.boundingSphere.radius;
+      // scale aware: take max scale component
+      const s = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z);
+      return r * s;
+    }
+    function tickPhysics(dt){
+      if(!el.physicsEnable.checked || !physicsRunning) return;
+      const g = parseFloat(el.gravity.value)||-9.8;
+      for(const m of objs){
+        const b = m.userData.body; if(!b || !b.dynamic) continue;
+        // integrate
+        b.v.y += g * dt;
+        m.position.x += b.v.x * dt;
+        m.position.y += b.v.y * dt;
+        m.position.z += b.v.z * dt;
+        // ground collision at y=0 using bounding sphere approximation
+        const rad = getBoundingRadius(m);
+        if(m.position.y - rad < 0){
+          m.position.y = rad;
+          if(b.v.y < 0){ b.v.y = -b.v.y * b.restitution; b.v.x *= 0.98; b.v.z *= 0.98; }
+          if(Math.abs(b.v.y) < 0.05){ b.v.y = 0; }
+          if(Math.hypot(b.v.x,b.v.z) < 0.02){ b.v.x=0; b.v.z=0; }
+        }
+      }
+    }
 
     // Stats
     function updateStats(){ const tris = objs.reduce((t,m)=> t + (m.geometry.index? m.geometry.index.count/3 : m.geometry.attributes.position.count/3), 0); el.stats.innerHTML = `${objs.length} objects<br>${Math.round(tris).toLocaleString()} triangles`; }
+
+    // Keyboard: toggle physics play with Space
+    addEventListener('keydown', e=>{ if((e.key===' '||e.code==='Space') && !(e.ctrlKey||e.metaKey)){ if(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return; physicsRunning = !physicsRunning; el.physicsPlay.textContent = physicsRunning ? 'Pause' : 'Play'; e.preventDefault(); }});
+
+    // Physics UI bindings
+    el.physicsPlay.addEventListener('click', ()=>{ physicsRunning = !physicsRunning; el.physicsPlay.textContent = physicsRunning ? 'Pause' : 'Play'; });
+    el.dropBtn.addEventListener('click', ()=>{ if(!selected) return; const b=selected.userData.body||makeBody(selected.userData.kind); b.v.set(0,0,0); b.dynamic = true; selected.userData.body = b; });
 
     // Resize
     function onResize(){ const w = el.viewport.clientWidth, h = el.viewport.clientHeight; renderer.setSize(w,h,false); if(camera.isPerspectiveCamera){ camera.aspect = w/h; camera.updateProjectionMatrix(); } if(camera.isOrthographicCamera){ const v=6, ar=w/h; camera.left=-v*ar; camera.right=v*ar; camera.top=v; camera.bottom=-v; camera.updateProjectionMatrix(); } }
@@ -514,7 +591,10 @@
     }
 
     // Animate
-    renderer.setAnimationLoop(()=>{ controls.update(); patchAllMaterials(scene); dir.position.set(camera.position.x, camera.position.y, camera.position.z).normalize().multiplyScalar(10); renderer.render(scene, camera); });
+    renderer.setAnimationLoop(()=>{ controls.update(); patchAllMaterials(scene); // physics step
+      const now = performance.now()/1000; tickPhysics(lastTime>0? Math.min(0.05, now-lastTime) : 0); lastTime = now;
+      dir.position.set(camera.position.x, camera.position.y, camera.position.z).normalize().multiplyScalar(10); renderer.render(scene, camera); });
+    let lastTime = 0;
 
     // -------- Tests (smoke) --------
     function recordTest(name, ok, note=''){ const li=document.createElement('li'); li.textContent = name + (note? ' — '+note : ''); li.className = ok? 'test-pass' : 'test-fail'; el.tests.appendChild(li); }
@@ -534,8 +614,14 @@
       copyTextSafe('webcad-test').then(r=>{ recordTest('Clipboard fallback does not throw', r.ok || r.method==='manual'); }).catch(()=>{ recordTest('Clipboard fallback does not throw', false); });
       // New: Keyboard shortcuts
       const beforeCopy = objs.length; select(objs[objs.length-1]); const cOK = copySelected(); const pOK = pasteClipboard(); recordTest('Copy/Paste increases count', cOK && pOK && objs.length===beforeCopy+1);
+      const startY = selected.position.y; el.physicsEnable.checked = true; physicsRunning = true; const frames=120; for(let i=0;i<frames;i++){ tickPhysics(1/60); } recordTest('Physics drops object', selected.position.y <= startY);
+      physicsRunning = false;
       const countAfterAdd = objs.length; const uOK = undo(); recordTest('Undo restores count', uOK && objs.length < countAfterAdd);
       const rOK = redo(); recordTest('Redo reapplies change', rOK && objs.length === countAfterAdd);
+      // Exactly one canvas inside #viewport
+      const canvasesInViewport = el.viewport.querySelectorAll('canvas').length;
+      const canvasParentOK = renderer.domElement.parentElement === el.viewport;
+      recordTest('Single canvas in viewport', canvasesInViewport===1 && canvasParentOK);
     }catch(err){ recordTest('Unexpected error during tests', false, String(err)); console.error(err); }
   </script>
 </body>
