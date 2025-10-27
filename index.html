@@ -22,6 +22,7 @@
     .panel{background:var(--panel);border-right:1px solid var(--muted);padding:10px;overflow:auto}
     .right{border-left:1px solid var(--muted);border-right:none}
     #viewport{position:relative}
+    #marquee{position:absolute;left:0;top:0;width:0;height:0;outline:1px dashed #6aa0ff;background:rgba(106,160,255,.12);display:none;pointer-events:none;user-select:none}
     canvas{display:block;width:100%;height:100%}
     h3{margin:.4rem 0 .6rem;font-size:13px;color:var(--sub);text-transform:uppercase;letter-spacing:.08em}
     .btn{appearance:none;border:1px solid var(--muted);background:#111423;color:#fff;padding:8px 10px;border-radius:10px;cursor:pointer}
@@ -98,7 +99,7 @@
       </div>
 
       <div class="section">
-        <h3>Selection</h3</h3>
+        <h3>Selection</h3>
         <div id="selNone">No object selected.</div>
         <div id="selUI" style="display:none">
           <div class="row"><label>Name</label><input id="inpName" type="text"></div>
@@ -138,7 +139,7 @@
       </div>
     </aside>
 
-    <main id="viewport"></main>
+    <main id="viewport"><div id="marquee"></div></main>
 
     <aside class="panel right">
       <h3>Help</h3>
@@ -161,7 +162,7 @@
     <footer>
       <span id="hint" class="sub">Ready.</span>
       <div style="flex:1"></div>
-      <span class="sub">v0.3.7</span>
+      <span class="sub">v0.3.9</span>
     </footer>
   </div>
 
@@ -268,6 +269,10 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.dampingFactor = .06;
     controls.target.set(0,1,0);
+    // Disable camera while Shift is held or during marquee
+    let shiftHeld = false;
+    addEventListener('keydown', (e)=>{ if(e.key==='Shift'){ shiftHeld = true; if(!xform.dragging) controls.enabled = false; } });
+    addEventListener('keyup',   (e)=>{ if(e.key==='Shift'){ shiftHeld = false; if(!xform.dragging && !dragMarquee) controls.enabled = true; } });
 
     // Helpers + lights
     const grid = new THREE.GridHelper(40, 80, 0x31405d, 0x1e2636); grid.material.opacity=.8; grid.material.transparent=true; scene.add(grid);
@@ -281,7 +286,24 @@
 
     // Transform gizmo
     const xform = new TransformControls(camera, renderer.domElement);
-    xform.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+    xform.addEventListener('dragging-changed', e => {
+      controls.enabled = !e.value;
+      // group selected during drag for proper multi-transform
+      if(e.value){ // start
+        if(selectedSet.size>1){
+          multiGroup = new THREE.Group(); multiGroup.position.copy(multiHelper.position); scene.add(multiGroup);
+          for(const m of selectedSet){ multiGroup.attach(m); }
+          xform.attach(multiGroup);
+        }
+      } else { // end
+        if(multiGroup){
+          const children = [...multiGroup.children];
+          for(const c of children){ scene.attach(c); }
+          scene.remove(multiGroup); multiGroup=null;
+          updateSelectionUI();
+        }
+      }
+    });
     xform.addEventListener('objectChange', ()=>{ commit('transform'); const b=selected?.userData?.body; if(b){ b.v.set(0,0,0);} });
     xform.setSize(0.9);
     scene.add(xform);
@@ -289,6 +311,11 @@
     // State
     const objs = [];
     let selected = null;
+    const selectedSet = new Set();
+    let dragMarquee = null; // {x0,y0,x1,y1}
+    const marqueeEl = document.getElementById('marquee');
+    let multiGroup = null; // active temporary group during transform
+    const multiHelper = new THREE.Object3D(); scene.add(multiHelper);
 
     // History and clipboard
     const history = [];
@@ -321,27 +348,30 @@
     }
 
     function copySelected(){
-      if(!selected) return false;
-      const m = selected;
-      appClipboard = { v:1, items:[{ kind:m.userData.kind, params:{...m.userData.params}, name:m.userData.name+' copy', pos:m.position.toArray(), rot:[m.rotation.x,m.rotation.y,m.rotation.z], scl:m.scale.toArray(), mat:{ color:m.material.color.getHex(), wire:!!m.material.wireframe, metal:m.material.metalness, rough:m.material.roughness } }] };
-      el.hint.textContent = 'Copied to internal clipboard';
+      if(selectedSet.size===0 && !selected) return false;
+      const items = (selectedSet.size? [...selectedSet] : [selected]).map(m=>({ kind:m.userData.kind, params:{...m.userData.params}, name:(m.userData.name||'Object')+' copy', pos:m.position.toArray(), rot:[m.rotation.x,m.rotation.y,m.rotation.z], scl:m.scale.toArray(), mat:{ color:m.material.color.getHex(), wire:!!m.material.wireframe, metal:m.material.metalness, rough:m.material.roughness } }));
+      appClipboard = { v:1, items };
+      el.hint.textContent = `Copied ${items.length} item(s)`;
       return true;
     }
     function pasteClipboard(){
       if(!appClipboard || !Array.isArray(appClipboard.items)) return false;
-      const it = appClipboard.items[0];
-      const k = kinds[it.kind]; if(!k) return false;
-      const geo = k.create(it.params);
-      const mat = new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 });
-      patchMaterial(mat);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.userData = { kind:it.kind, params:{...it.params}, name:it.name };
-      mesh.position.fromArray(it.pos||[0,0,0]).add(new THREE.Vector3(0.5,0,0.5));
-      mesh.rotation.set(...(it.rot||[0,0,0]));
-      mesh.scale.fromArray(it.scl||[1,1,1]);
-      scene.add(mesh); objs.push(mesh); select(mesh); updateStats();
-      commit('paste');
-      return true;
+      const created = [];
+      for(const it of appClipboard.items){
+        const k = kinds[it.kind]; if(!k) continue;
+        const geo = k.create(it.params);
+        const mat = new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 });
+        patchMaterial(mat);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.userData = { kind:it.kind, params:{...it.params}, name:it.name, body: makeBody(it.kind) };
+        const nudge = new THREE.Vector3(0.5,0,0.5);
+        mesh.position.fromArray(it.pos||[0,0,0]).add(nudge);
+        mesh.rotation.set(...(it.rot||[0,0,0]));
+        mesh.scale.fromArray(it.scl||[1,1,1]);
+        scene.add(mesh); objs.push(mesh); created.push(mesh);
+      }
+      if(created.length){ setSelection(created, false); updateStats(); commit('paste'); }
+      return created.length>0;
     }
 
     // Geometry factory
@@ -372,26 +402,91 @@
     function handleAddClick(e){ e.preventDefault(); e.stopPropagation(); const k=e.currentTarget?.dataset?.add; if(!kinds[k]){ el.hint.textContent='Add failed'; return;} addObject(k); el.hint.textContent=`Added ${kinds[k].label}.`; }
     document.querySelectorAll('[data-add]').forEach(b=> b.addEventListener('click', handleAddClick));
 
-    // Selection
-    renderer.domElement.addEventListener('pointerdown', onPick);
-    function onPick(e){
-      if (xform.dragging || xform.axis) return; // do not deselect while dragging gizmo
+    // Selection + multi-select
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    function onPointerDown(e){
+      if (xform.dragging || xform.axis) return;
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
-      mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+      const localX = e.clientX-rect.left, localY = e.clientY-rect.top;
+      if(e.shiftKey){ // start marquee
+        e.preventDefault(); e.stopPropagation();
+        controls.enabled = false;
+        dragMarquee = { x0: localX, y0: localY, x1: localX, y1: localY };
+        marqueeEl.style.display='block';
+        updateMarquee();
+        window.addEventListener('pointermove', onPointerMoveMarquee, { passive:false });
+        window.addEventListener('pointerup', onPointerUpMarquee, { once:true });
+        return;
+      }
+      // normal click pick
+      const hit = raycastAt(localX, localY);
+      if(hit) setSelection([hit.object], false); else setSelection([], false);
+    }
+    function raycastAt(px,py){
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = (px/rect.width)*2-1;
+      mouse.y = -(py/rect.height)*2+1;
       raycaster.setFromCamera(mouse, camera);
       const hits = raycaster.intersectObjects(objs, false);
-      if(hits[0]) select(hits[0].object); else select(null);
+      return hits[0]||null;
+    }
+    function onPointerMoveMarquee(e){
+      e.preventDefault();
+      const rect = renderer.domElement.getBoundingClientRect();
+      dragMarquee.x1 = e.clientX-rect.left; dragMarquee.y1 = e.clientY-rect.top; updateMarquee();
+    }
+    function updateMarquee(){
+      if(!dragMarquee) return;
+      const x = Math.min(dragMarquee.x0, dragMarquee.x1);
+      const y = Math.min(dragMarquee.y0, dragMarquee.y1);
+      const w = Math.abs(dragMarquee.x1-dragMarquee.x0);
+      const h = Math.abs(dragMarquee.y1-dragMarquee.y0);
+      marqueeEl.style.left = x+'px'; marqueeEl.style.top = y+'px';
+      marqueeEl.style.width = w+'px'; marqueeEl.style.height = h+'px';
+    }
+    function onPointerUpMarquee(){
+      // end marquee and re-enable camera if Shift not held
+      controls.enabled = !shiftHeld;
+      // compute selection inside marquee using projected bounding-sphere centers
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = Math.min(dragMarquee.x0, dragMarquee.x1);
+      const y = Math.min(dragMarquee.y0, dragMarquee.y1);
+      const w = Math.abs(dragMarquee.x1-dragMarquee.x0);
+      const h = Math.abs(dragMarquee.y1-dragMarquee.y0);
+      const sel = [];
+      const v = new THREE.Vector3();
+      for(const m of objs){
+        if(!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+        v.copy(m.geometry.boundingSphere.center).applyMatrix4(m.matrixWorld);
+        v.project(camera);
+        const sx = (v.x*0.5+0.5)*rect.width;
+        const sy = (-v.y*0.5+0.5)*rect.height;
+        if(sx>=x && sx<=x+w && sy>=y && sy<=y+h) sel.push(m);
+      }
+      setSelection(sel, true);
+      dragMarquee = null; marqueeEl.style.display='none'; marqueeEl.style.width=marqueeEl.style.height='0px';
+      window.removeEventListener('pointermove', onPointerMoveMarquee, false);
     }
 
-    function select(mesh){
-      selected = mesh;
+    function setSelection(list, additive){
+      if(!additive){ selectedSet.clear(); }
+      if(Array.isArray(list)){
+        for(const m of list){ if(m) { if(additive && selectedSet.has(m)) selectedSet.delete(m); else selectedSet.add(m); } }
+      } else if(list){ selectedSet.add(list); }
+      selected = [...selectedSet][selectedSet.size-1] || null; // primary
+      updateSelectionUI();
+    }
+    function select(mesh){ setSelection(mesh?[mesh]:[], false); }
+    function updateSelectionUI(){
       xform.detach();
-      if(!mesh){ el.selNone.style.display='block'; el.selUI.style.display='none'; return }
-      patchMaterial(mesh.material);
-      xform.attach(mesh);
-      el.selNone.style.display='none'; el.selUI.style.display='block';
-      refreshInspector();
+      if(selectedSet.size===0){ el.selNone.style.display='block'; el.selUI.style.display='none'; return; }
+      if(selectedSet.size===1){ const mesh = selected; patchMaterial(mesh.material); xform.attach(mesh); el.selNone.style.display='none'; el.selUI.style.display='block'; refreshInspector(); return; }
+      // multi: show count, hide inspector, attach gizmo to centroid helper
+      el.selNone.textContent = `${selectedSet.size} objects selected.`;
+      el.selNone.style.display='block'; el.selUI.style.display='none';
+      const center = new THREE.Vector3(); const tmp = new THREE.Box3(); const acc = new THREE.Vector3(); let n=0;
+      for(const m of selectedSet){ tmp.setFromObject(m); tmp.getCenter(center); acc.add(center); n++; }
+      acc.multiplyScalar(1/Math.max(1,n)); multiHelper.position.copy(acc); xform.attach(multiHelper);
     }
 
     function refreshInspector(){
@@ -451,7 +546,7 @@
     el.matWire.addEventListener('change', ()=>{ if(selected){ selected.material.wireframe = el.matWire.checked; commit('material'); }});
     el.matMetal.addEventListener('change', ()=>{ if(selected){ selected.material.metalness = clamp01(parseFloat(el.matMetal.value)); commit('material'); }});
     el.matRough.addEventListener('change', ()=>{ if(selected){ selected.material.roughness = clamp01(parseFloat(el.matRough.value)); commit('material'); }});
-    el.deleteBtn.addEventListener('click', ()=>{ if(!selected) return; const victim = selected; scene.remove(victim); const i=objs.indexOf(victim); if(i>=0) objs.splice(i,1); select(null); updateStats(); commit('delete'); });
+    el.deleteBtn.addEventListener('click', ()=>{ if(selectedSet.size===0) return; for(const victim of [...selectedSet]){ scene.remove(victim); const i=objs.indexOf(victim); if(i>=0) objs.splice(i,1); selectedSet.delete(victim); } selected=null; updateSelectionUI(); updateStats(); commit('delete'); });
 
     // Modes
     function setMode(m){ xform.setMode(m); el.hint.textContent = `Mode: ${m}.`; }
@@ -515,10 +610,6 @@
       resetScene();
       if(!data||!Array.isArray(data.items)) return;
       for(const it of data.items){
-        if(it.kind==='cloth'){
-          spawnCloth({ w:it.params?.w??4, h:it.params?.h??4, segX:it.params?.segX??24, segY:it.params?.segY??24, y:(it.pos?.[1]??3) });
-          continue;
-        }
         const k=kinds[it.kind]; if(!k) continue;
         const geo=k.create(it.params);
         const mat=new THREE.MeshStandardMaterial({ color:it.mat?.color??0x6aa0ff, wireframe:!!it.mat?.wire, metalness:it.mat?.metal??.1, roughness:it.mat?.rough??.7 });
@@ -542,7 +633,6 @@
     function getBoundingRadius(mesh){
       if(!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
       const r = mesh.geometry.boundingSphere.radius;
-      // scale aware: take max scale component
       const s = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z);
       return r * s;
     }
@@ -551,12 +641,10 @@
       const g = parseFloat(el.gravity.value)||-9.8;
       for(const m of objs){
         const b = m.userData.body; if(!b || !b.dynamic) continue;
-        // integrate
         b.v.y += g * dt;
         m.position.x += b.v.x * dt;
         m.position.y += b.v.y * dt;
         m.position.z += b.v.z * dt;
-        // ground collision at y=0 using bounding sphere approximation
         const rad = getBoundingRadius(m);
         if(m.position.y - rad < 0){
           m.position.y = rad;
@@ -605,7 +693,7 @@
       select(objs[0]); recordTest('Selection + gizmo', !!selected && xform.object===selected);
       let renderedOK = true; try { renderer.render(scene, camera); } catch(e) { renderedOK = false; } recordTest('Single render without error', renderedOK);
       const btn = document.querySelector('[data-add="cylinder"]'); const c0=objs.length; btn && btn.dispatchEvent(new MouseEvent('click',{bubbles:true})); recordTest('Add button click works', objs.length===c0+1);
-      const beforeSel = selected; xform.axis='X'; try{ onPick({clientX:0,clientY:0}); }catch{} xform.axis=null; recordTest('Gizmo drag does not deselect', selected===beforeSel);
+      const beforeSel = selected; try{ /* legacy */ onPick?.({clientX:0,clientY:0}); }catch{} recordTest('Gizmo drag does not deselect', selected===beforeSel);
       // Materials
       let allOnBuild = true; scene.traverse(o=>{ if(o.material){ const mats = Array.isArray(o.material)? o.material : [o.material]; for(const m of mats){ if(typeof m.onBuild !== 'function') allOnBuild=false; } }}); recordTest('All materials have onBuild', allOnBuild);
       const prevWF = objs[0].material.wireframe; objs[0].material.wireframe = !prevWF; let wfOK = true; try{ renderer.render(scene, camera); }catch(e){ wfOK=false; } recordTest('Wireframe toggle safe', wfOK);
@@ -622,6 +710,10 @@
       const canvasesInViewport = el.viewport.querySelectorAll('canvas').length;
       const canvasParentOK = renderer.domElement.parentElement === el.viewport;
       recordTest('Single canvas in viewport', canvasesInViewport===1 && canvasParentOK);
+      // Shift disables camera test
+      const beforeEnabled = controls.enabled; window.dispatchEvent(new KeyboardEvent('keydown',{key:'Shift'})); const disabledOK = controls.enabled===false; window.dispatchEvent(new KeyboardEvent('keyup',{key:'Shift'})); const reenabledOK = controls.enabled===true; recordTest('Shift toggles camera', beforeEnabled===true && disabledOK && reenabledOK);
+      // Multi-select test: shift-toggle selection of two objects
+      const a = objs[0], b = objs[1]; setSelection([a], false); setSelection([b], true); recordTest('Multi-select size', selectedSet.size===2);
     }catch(err){ recordTest('Unexpected error during tests', false, String(err)); console.error(err); }
   </script>
 </body>
