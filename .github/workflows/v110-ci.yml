@@ -41,3 +41,8 @@ jobs:
         env:
           PYTHONPATH: .
         run: python acceptance_test.py
+      - name: Run ForgeCAD acceptance API contract
+        working-directory: v1.1/base
+        env:
+          PYTHONPATH: .
+        run: python acceptance_api_test.py
