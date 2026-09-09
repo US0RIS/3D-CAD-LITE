@@ -2,6 +2,11 @@ name: Build ForgeCAD v1.1 macOS release candidate
 
 on:
   workflow_dispatch:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - ".github/workflows/v110-macos-rc.yml"
+      - "v1.1/BUILD_MACOS_RC"
 
 jobs:
   build:
