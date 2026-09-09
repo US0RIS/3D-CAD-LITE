@@ -1,62 +1,81 @@
-name: Build ForgeCAD v1 for Windows 11
+name: Build ForgeCAD v1 Windows installer
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - forgecad-v1
+      - forgecad-release-package-final2
     paths:
-      - "v1/forgecad-v1-source.zip"
-      - "v1/overrides/windows-build.ps1"
+      - "v1/release-b64/**"
       - ".github/workflows/windows-v1-build.yml"
 
 jobs:
   build:
     runs-on: windows-2025
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Expand frozen v1 source
+      - name: Reconstruct and verify release source
         shell: pwsh
         run: |
-          $src = Join-Path $env:GITHUB_WORKSPACE "v1/forgecad-v1-source.zip"
+          $ErrorActionPreference = "Stop"
+          $parts = 0..3 | ForEach-Object {
+            $path = Join-Path $env:GITHUB_WORKSPACE ("v1/release-b64/part{0:D2}.txt" -f $_)
+            if (-not (Test-Path $path)) { throw "Missing release source part: $path" }
+            (Get-Content $path -Raw).Trim()
+          }
+          $b64 = $parts -join ""
+          $bytes = [Convert]::FromBase64String($b64)
+          $src = Join-Path $env:GITHUB_WORKSPACE "ForgeCAD-v1-source.zip"
+          [IO.File]::WriteAllBytes($src, $bytes)
+          if ((Get-Item $src).Length -ne 47969) { throw "Release snapshot length mismatch" }
+          $hash = (Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "19c4c3bf864ca487088b8efc45dbb49b2b0ab1b91179f4cd133e55c937dd269b") {
+            throw "Release snapshot SHA256 mismatch: $hash"
+          }
           $dst = Join-Path $env:GITHUB_WORKSPACE "v1-build-src"
           if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          Write-Host "Snapshot bytes: $((Get-Item $src).Length)"
-          Write-Host "Snapshot SHA256: $((Get-FileHash $src -Algorithm SHA256).Hash)"
-          & tar.exe -xf $src -C $dst
-          if ($LASTEXITCODE -ne 0) { throw "Could not extract the frozen ForgeCAD v1 source snapshot." }
-          if (-not (Test-Path (Join-Path $dst "server.py"))) { throw "Snapshot extraction did not produce server.py." }
-          Copy-Item "v1/overrides/windows-build.ps1" (Join-Path $dst "windows/build.ps1") -Force
-          (Get-Content (Join-Path $dst "README.md") -Raw).Replace("ForgeCAD v0.4 includes an authenticated loopback engineering bridge", "ForgeCAD v1 includes an authenticated loopback engineering bridge") | Set-Content (Join-Path $dst "README.md") -Encoding UTF8
-          (Get-Content (Join-Path $dst "JARVIS_INTEGRATION.md") -Raw).Replace("ForgeCAD v0.4 can be operated from Jarvis", "ForgeCAD v1 can be operated from Jarvis") | Set-Content (Join-Path $dst "JARVIS_INTEGRATION.md") -Encoding UTF8
+          Expand-Archive -Path $src -DestinationPath $dst -Force
+          if (-not (Test-Path (Join-Path $dst "server.py"))) { throw "Snapshot extraction did not produce server.py" }
+          Write-Host "Verified release source: $hash"
 
       - name: Set up Python 3.12 x64
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           architecture: "x64"
-          cache: "pip"
-          cache-dependency-path: |
-            v1-build-src/requirements.txt
-            v1-build-src/windows/requirements-build.txt
 
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
-      - name: Build ForgeCAD
+      - name: Build Windows application and installer
         shell: pwsh
         working-directory: v1-build-src
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/build.ps1
 
-      - name: Install and smoke-test packaged application
+      - name: Install and smoke-test packaged installer
         shell: pwsh
         working-directory: v1-build-src
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/ci_installer_smoke.ps1
+
+      - name: Show release hashes
+        shell: pwsh
+        working-directory: v1-build-src
+        run: |
+          Get-FileHash dist/installer/ForgeCAD-Setup.exe -Algorithm SHA256
+          Get-Item dist/installer/ForgeCAD-Setup.exe | Select-Object Name,Length
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForgeCAD-v1-Windows-Setup
+          path: v1-build-src/dist/installer/ForgeCAD-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload portable Windows app
         uses: actions/upload-artifact@v4
@@ -65,13 +84,3 @@ jobs:
           path: v1-build-src/dist/ForgeCAD-Windows-x64.zip
           if-no-files-found: error
           retention-days: 30
-
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: ForgeCAD-v1-Setup
-          path: v1-build-src/dist/installer/ForgeCAD-Setup.exe
-          if-no-files-found: error
-          retention-days: 30
-
-# Release build trigger: 2026-09-09
