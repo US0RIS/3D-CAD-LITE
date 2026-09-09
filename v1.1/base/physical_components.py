@@ -73,7 +73,9 @@ def component_definition(obj):
 def _step_asset(c):
     if not c:return None
     for a in c.get("geometry",{}).get("assets",[]):
-        if a.get("role")=="geometry" and a.get("format") in {"step","stp"} and Path(str(a.get("path",""))).is_file():return Path(a["path"])
+        if a.get("role")=="geometry" and a.get("format") in {"step","stp"}:
+            path=registry.resolve_asset_path(a)
+            if path and path.is_file():return path
     return None
 def component_parts(obj):
     c=component_definition(obj)

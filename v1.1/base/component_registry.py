@@ -244,7 +244,22 @@ def compatible_interfaces(component_a,component_b):
             if r["compatible"]:out.append({"a":ia,"b":ib,**r})
     return out
 
-def component_snapshot(cid):return {k:deepcopy(v) for k,v in component_by_id(cid).items() if k!="legacy"}
+def component_snapshot(cid):
+    snap={k:deepcopy(v) for k,v in component_by_id(cid).items() if k!="legacy"}
+    for asset in snap.get("geometry",{}).get("assets",[]):asset.pop("path",None)
+    return snap
+
+def resolve_asset_path(asset):
+    rel=asset.get("relative_path")
+    if rel:
+        p=(ASSET_DIR/str(rel)).resolve()
+        try:p.relative_to(ASSET_DIR.resolve())
+        except ValueError:return None
+        return p
+    old=asset.get("path")
+    if old:
+        p=Path(str(old));return p if p.is_file() else None
+    return None
 def make_project_object(cid:str,*,name:str|None=None,transform:dict[str,Any]|None=None):
     c=component_by_id(cid);dims=c.get("dimensions_mm",[20,20,20]);obj={"name":name or c["name"],"kind":"component","params":{"x":float(dims[0]),"y":float(dims[1]),"z":float(dims[2])},"material":c.get("material") or "abs","component_ref":c["id"],"component_snapshot":component_snapshot(cid),"interfaces":deepcopy(c.get("interfaces",[])),"semantic":{"role":c.get("category"),"tags":deepcopy(c.get("tags",[])),"geometry_fidelity":c.get("geometry",{}).get("fidelity"),"trust_score":c.get("trust_score",0),"manufacturer":c.get("manufacturer"),"model":c.get("model")}}
     if transform:obj["transform"]=deepcopy(transform)
@@ -273,7 +288,7 @@ def register_asset_bytes(cid,filename,data,*,role="geometry",source_kind="user_s
     if len(data)>250*1024*1024:raise ValueError("Component asset exceeds 250 MB")
     component=component_by_id(cid);digest=hashlib.sha256(data).hexdigest();ext=Path(filename).suffix.lower()
     if role=="geometry" and ext not in {".step",".stp",".iges",".igs",".stl",".obj",".3mf"}:raise ValueError(f"Unsupported geometry asset type: {ext}")
-    folder=ASSET_DIR/_slug(cid);folder.mkdir(parents=True,exist_ok=True);out=folder/f"{digest[:16]}_{_safe_asset_name(filename)}";out.write_bytes(data);asset={"id":digest[:16],"role":role,"filename":filename,"path":str(out),"sha256":digest,"bytes":len(data),"format":ext.lstrip("."),"source":_source(source_kind,source_url)};component.setdefault("geometry",{}).setdefault("assets",[]).append(asset)
+    folder=ASSET_DIR/_slug(cid);folder.mkdir(parents=True,exist_ok=True);out=folder/f"{digest[:16]}_{_safe_asset_name(filename)}";out.write_bytes(data);rel=str(out.relative_to(ASSET_DIR)).replace("\\","/");asset={"id":digest[:16],"role":role,"filename":filename,"relative_path":rel,"sha256":digest,"bytes":len(data),"format":ext.lstrip("."),"source":_source(source_kind,source_url)};component.setdefault("geometry",{}).setdefault("assets",[]).append(asset)
     if role=="geometry" and ext in {".step",".stp"}:component["geometry"].update({"preferred":"step_asset","fidelity":"official_step" if source_kind=="manufacturer" else "verified_step","trust":source_kind})
     _CUSTOM[cid]=component;_persist_custom();_refresh_compat_registry();return {"ok":True,"component":component,"asset":asset}
 def import_catalog_pack_bytes(filename,data):

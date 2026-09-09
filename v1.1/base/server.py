@@ -12,6 +12,7 @@ import agents, analysis, core, jarvis_bridge, software
 import component_registry as components
 import component_importers
 import physical_components
+import project_bundle
 
 ROOT=Path(__file__).resolve().parent;STATIC=ROOT/"static"
 class Command(BaseModel): op:str; args:dict[str,Any]=Field(default_factory=dict); actor:str="human"; reason:str=""
@@ -51,6 +52,14 @@ def import_json(payload:dict[str,Any]=Body(...)):
     except Exception as e:fail(e)
 @app.get("/api/export")
 def export():return core.PROJECT
+@app.get("/api/project/bundle")
+def export_bundle():
+    data=project_bundle.export_bundle_bytes(core.PROJECT);return Response(content=data,media_type="application/zip",headers={"Content-Disposition":"attachment; filename=ForgeCAD-project.forgecad.zip"})
+@app.post("/api/project/import-bundle")
+async def import_bundle(file:UploadFile=File(...)):
+    try:
+        result=project_bundle.import_bundle_bytes(await file.read());st=core.upgrade_project(result["project"]);core.PROJECT.clear();core.PROJECT.update(st);core.push_history("import portable project bundle","human","restore canonical project plus component assets");core.persist();result["project"]=core.PROJECT;return result
+    except Exception as e:fail(e)
 @app.post("/api/import/step")
 async def import_step(file:UploadFile=File(...)):
     try:
