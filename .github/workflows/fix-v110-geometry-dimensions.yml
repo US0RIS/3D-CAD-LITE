@@ -1,0 +1,35 @@
+name: Fix ForgeCAD v1.1 physical geometry dimensions
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/fix_physical_geometry_dimensions.py"
+      - ".github/workflows/fix-v110-geometry-dimensions.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v110-geometry-dimensions-fixed]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+      - name: Correct full-length geometry semantics
+        run: python v1.1/fix_physical_geometry_dimensions.py v1.1/base
+      - name: Compile patched source
+        run: python -m compileall -q v1.1/base
+      - name: Commit corrected geometry
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/physical_components.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Correct purchased-component full-length geometry [v110-geometry-dimensions-fixed]"
+          git fetch origin forgecad-v1.1.0-dev
+          git rebase origin/forgecad-v1.1.0-dev
+          git push origin HEAD:forgecad-v1.1.0-dev
