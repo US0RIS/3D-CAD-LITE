@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import agents, analysis, core, jarvis_bridge, software
 import component_registry as components
+import component_importers
 import physical_components
 
 ROOT=Path(__file__).resolve().parent;STATIC=ROOT/"static"
@@ -121,6 +122,10 @@ def comp_import(payload:dict[str,Any]|list[dict[str,Any]]=Body(...)):
 @app.post("/api/components/import-pack")
 async def comp_import_pack(file:UploadFile=File(...)):
     try:return components.import_catalog_pack_bytes(file.filename or "catalog.json",await file.read())
+    except Exception as e:fail(e)
+@app.post("/api/components/import-step-component")
+async def comp_import_step_component(file:UploadFile=File(...),manufacturer:str="Custom",model:str="Vendor Component",category:str="custom",component_id:str|None=None,manufacturer_part_number:str|None=None,mass_g:float|None=None,source_kind:str="user_supplied",source_url:str|None=None):
+    try:return component_importers.import_step_component(file.filename or "component.step",await file.read(),manufacturer=manufacturer,model=model,category=category,component_id=component_id,manufacturer_part_number=manufacturer_part_number,mass_g=mass_g,source_kind=source_kind,source_url=source_url)
     except Exception as e:fail(e)
 @app.get("/api/components/{component_id}")
 def comp_get(component_id:str):
