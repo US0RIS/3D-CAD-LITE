@@ -9,6 +9,7 @@ from typing import Any
 import cadquery as cq
 import component_registry
 import physical_components
+import system_validation
 
 APP_VERSION = "1.1.0-dev"
 DATA_DIR = Path(os.environ.get("FORGECAD_DATA_DIR") or (Path.home()/".forgecad"))
@@ -374,7 +375,7 @@ def _component_instance_args(component_id: str, name: str|None=None, transform: 
     args=component_registry.make_project_object(component_id,name=name,transform=transform);args.setdefault("transform",_transform());args.setdefault("features",[]);args.setdefault("visible",True);return args
 
 def reality_check() -> dict[str,Any]:
-    return physical_components.reality_check(PROJECT)
+    return system_validation.validate_system(PROJECT)
 
 def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: str="") -> dict[str,Any]:
     args=deepcopy(args or {})

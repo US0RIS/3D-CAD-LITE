@@ -175,6 +175,8 @@ def connection_delete(connection_id:str):
     except KeyError as e:fail(e,404)
 @app.get("/api/reality-check")
 def reality_check():return core.reality_check()
+@app.get("/api/system-check")
+def system_check():return core.reality_check()
 
 @app.get("/api/code/{object_id}")
 def code_ws(object_id:str,include_contents:bool=True):
@@ -298,7 +300,7 @@ def j_change(body:JarvisChangeBody,_:None=__import__('fastapi').Depends(require_
     return {"ok":True,"source_design":source,"new_design":core.ACTIVE_DESIGN,"plan":plan,"applied_commands":n,"requirements":core.requirement_checks(),"diff":core.compare_branch(source)}
 
 @app.get("/api/tools")
-def tools():return {"principle":"Human UI, local AI and Jarvis call the same deterministic typed operations; UI state is never authoritative.","operations":["add","add_component","replace_component","sync_component","update","transform","mate_components","connect_interfaces","disconnect","delete","add_feature","delete_feature","add_load","add_constraint","set_requirement","add_bom_item","add_note","code_write","code_delete","code_rename"],"component_registry":{"schema":"/api/components/schema","stats":"/api/components/stats","search":"POST /api/components/search","select":"POST /api/components/select","import_pack":"POST /api/components/import-pack","reality_check":"/api/reality-check"},"analysis":["cantilever screening","reduced-order structural preview","modal screening","thermal screening","parameter optimization","manufacturing screening"],"openapi":"/openapi.json","docs":"/docs"}
+def tools():return {"principle":"Human UI, local AI and Jarvis call the same deterministic typed operations; UI state is never authoritative.","operations":["add","add_component","replace_component","sync_component","update","transform","mate_components","connect_interfaces","disconnect","delete","add_feature","delete_feature","add_load","add_constraint","set_requirement","add_bom_item","add_note","code_write","code_delete","code_rename"],"component_registry":{"schema":"/api/components/schema","stats":"/api/components/stats","search":"POST /api/components/search","select":"POST /api/components/select","import_pack":"POST /api/components/import-pack","reality_check":"/api/reality-check","system_check":"/api/system-check"},"analysis":["cantilever screening","reduced-order structural preview","modal screening","thermal screening","parameter optimization","manufacturing screening"],"openapi":"/openapi.json","docs":"/docs"}
 @app.get("/api/export/step/{object_id}")
 def export_step(object_id:str):
     try:
