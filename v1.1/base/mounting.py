@@ -25,9 +25,18 @@ def _mount_points(interface:dict[str,Any])->tuple[list[list[float]],float|None,s
         pts=[]
         for p in explicit:
             if isinstance(p,(list,tuple)) and len(p)>=2:pts.append([float(p[0]),float(p[1])])
+        expected=meta.get("count")
+        if expected is not None and pts and len(pts)!=int(expected):
+            return [],float(diameter) if diameter is not None else None,f"explicit mounting-point count {len(pts)} does not match declared count {expected}"
         return pts,float(diameter) if diameter is not None else None,None if pts else "mount point list is empty"
     pattern=meta.get("pattern_mm") or meta.get("hole_spacing_mm")
     if isinstance(pattern,(list,tuple)) and len(pattern)>=2:
+        # A two-value spacing only defines the four corners of a rectangular
+        # pattern when the manufacturer actually declares four holes.  Never turn
+        # a two-hole diagonal/offset dimension into four drilled holes.
+        count=int(meta.get("count",4) or 4)
+        if count!=4:
+            return [],float(diameter) if diameter is not None else None,f"{count}-hole mounting pattern lacks explicit center coordinates"
         sx,sy=float(pattern[0]),float(pattern[1])
         return [[-sx/2,-sy/2],[sx/2,-sy/2],[sx/2,sy/2],[-sx/2,sy/2]],float(diameter) if diameter is not None else None,None
     return [],float(diameter) if diameter is not None else None,"component does not publish a usable mounting-point pattern"
