@@ -1,0 +1,61 @@
+name: Materialize ForgeCAD v1.1 development base
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/MATERIALIZE"
+      - ".github/workflows/materialize-v110-base.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: ${{ !contains(github.event.head_commit.message, '[materialized]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+
+      - name: Reconstruct verified v1.0.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/forgecad-v110
+          cat v1/release-b64/part00.txt v1/release-b64/part01.txt v1/release-b64/part02.txt v1/release-b64/part03.txt | base64 -d > /tmp/forgecad-v110/source.zip
+          echo "19c4c3bf864ca487088b8efc45dbb49b2b0ab1b91179f4cd133e55c937dd269b  /tmp/forgecad-v110/source.zip" | sha256sum -c -
+          unzip -q /tmp/forgecad-v110/source.zip -d /tmp/forgecad-v110/src
+
+      - name: Apply verified v1.0.1 physical-geometry patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python v1/overrides/v101_geometry_patch.py /tmp/forgecad-v110/src
+
+      - name: Materialize editable v1.1 source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf v1.1/base
+          mkdir -p v1.1/base
+          cp -a /tmp/forgecad-v110/src/. v1.1/base/
+          find v1.1/base -type d -name '__pycache__' -prune -exec rm -rf {} + || true
+          rm -rf v1.1/base/dist v1.1/base/build v1.1/base/.venv || true
+          printf '%s\n' 'v1.0.1 source materialized for v1.1 development.' > v1.1/base/BASELINE.txt
+
+      - name: Commit materialized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "Materialize v1.0.1 source for v1.1 development [materialized]"
+          git push origin HEAD:forgecad-v1.1.0-dev
