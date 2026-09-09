@@ -1,0 +1,76 @@
+name: Publish ForgeCAD v1.0.1 Release
+
+on:
+  workflow_run:
+    workflows:
+      - Build ForgeCAD v1.0.1 macOS installer
+      - Build ForgeCAD v1.0.1 Windows installer
+    types: [completed]
+    branches: [forgecad-release-v1.0.1]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: forgecad-v1.0.1-release-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve successful native builds
+        id: runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAC_RUN=$(gh run list --repo "$REPO" --workflow "Build ForgeCAD v1.0.1 macOS installer" --branch forgecad-release-v1.0.1 --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          WIN_RUN=$(gh run list --repo "$REPO" --workflow "Build ForgeCAD v1.0.1 Windows installer" --branch forgecad-release-v1.0.1 --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [[ -z "$MAC_RUN" || -z "$WIN_RUN" ]]; then
+            echo "Both successful native builds are not available yet; a later workflow_run event will retry publication."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "mac_run=$MAC_RUN" >> "$GITHUB_OUTPUT"
+          echo "win_run=$WIN_RUN" >> "$GITHUB_OUTPUT"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download native installer artifacts
+        if: steps.runs.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAC_RUN: ${{ steps.runs.outputs.mac_run }}
+          WIN_RUN: ${{ steps.runs.outputs.win_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/mac release/win
+          gh run download "$MAC_RUN" --repo "$REPO" -n ForgeCAD-v1.0.1-macOS-arm64-DMG -D release/mac
+          gh run download "$WIN_RUN" --repo "$REPO" -n ForgeCAD-v1.0.1-Windows-Setup -D release/win
+          DMG=$(find release/mac -type f -name '*.dmg' -print -quit)
+          EXE=$(find release/win -type f -name '*.exe' -print -quit)
+          test -n "$DMG" && test -s "$DMG"
+          test -n "$EXE" && test -s "$EXE"
+          echo "macOS DMG:"; sha256sum "$DMG"
+          echo "Windows installer:"; sha256sum "$EXE"
+
+      - name: Publish stable GitHub Release assets
+        if: steps.runs.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DMG=$(find release/mac -type f -name '*.dmg' -print -quit)
+          EXE=$(find release/win -type f -name '*.exe' -print -quit)
+          if ! gh release view forgecad-v1.0.1 --repo "$REPO" >/dev/null 2>&1; then
+            gh release create forgecad-v1.0.1 --repo "$REPO" --target forgecad-release-v1.0.1 --title "ForgeCAD v1.0.1" --notes "ForgeCAD v1.0.1 replaces generic component cuboids in the default Raspberry Pi assembly with component-specific physical geometry and a manufacturable Pi 5 mounting plate. Both native installers are published only after their packaged applications pass native smoke tests."
+          fi
+          gh release upload forgecad-v1.0.1 --repo "$REPO" "$DMG#ForgeCAD v1.0.1 macOS Apple Silicon DMG" "$EXE#ForgeCAD v1.0.1 Windows x64 Setup" --clobber
+          gh release view forgecad-v1.0.1 --repo "$REPO" --json url,assets
