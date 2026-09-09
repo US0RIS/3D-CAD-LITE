@@ -36,3 +36,8 @@ jobs:
         env:
           PYTHONPATH: .
         run: python api_test.py
+      - name: Run ForgeCAD real-system acceptance assembly
+        working-directory: v1.1/base
+        env:
+          PYTHONPATH: .
+        run: python acceptance_test.py
