@@ -382,6 +382,7 @@ def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: 
         mutation=op not in {"project_name","settings"}
         if mutation: ensure_mutable(actor,reason or op)
         if op=="add":
+            if args.get("kind")=="component":raise ValueError("Purchased components must be instantiated with add_component so registry identity, provenance, interfaces and BOM remain authoritative")
             obj={"id":uid(),"name":args.get("name","Part"),"kind":args.get("kind","box"),"params":args.get("params",{"x":20,"y":20,"z":20}),"material":args.get("material","aluminum_6061_t6"),"transform":args.get("transform",_transform()),"features":deepcopy(args.get("features",[])),"semantic":args.get("semantic",{}),"visible":True}
             for optional in ("component_ref","component_snapshot","interfaces","code"):
                 if optional in args: obj[optional]=deepcopy(args[optional])
@@ -390,10 +391,14 @@ def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: 
             cid=str(args.get("component_id") or args.get("id") or "");data=_component_instance_args(cid,args.get("name"),args.get("transform"));obj={"id":uid(),**deepcopy(data)};PROJECT["objects"].append(obj);_component_bom_upsert(cid,1);changed=obj["id"]
         elif op=="update":
             obj=object_by_id(str(args.pop("id"))); changed=obj["id"]
+            if obj.get("kind")=="component":
+                forbidden=set(args)&{"params","material","component_ref","component_snapshot","interfaces","features"}
+                if forbidden:raise ValueError("Purchased component engineering data is immutable; use replace_component or explicit sync_component instead of editing "+", ".join(sorted(forbidden)))
             for k,v in args.items():
                 if k in {"name","params","material","semantic","visible","component_ref"}: obj[k]=v
         elif op=="transform":
             obj=object_by_id(str(args.get("id"))); changed=obj["id"]; t=obj.setdefault("transform",_transform())
+            if obj.get("kind")=="component" and "scale" in args and any(abs(float(x)-1.0)>1e-9 for x in args["scale"]):raise ValueError("Purchased components cannot be scaled; their physical dimensions are authoritative")
             for k in ("position","rotation_deg","scale"):
                 if k in args:t[k]=[float(x) for x in args[k]]
         elif op=="mate_components":
@@ -409,15 +414,19 @@ def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: 
         elif op=="replace_component":
             obj=object_by_id(str(args.get("id")));old_cid=obj.get("component_ref");cid=str(args.get("component_id"));preserve_transform=deepcopy(obj.get("transform",_transform()));preserve_name=obj.get("name");data=_component_instance_args(cid,args.get("name") or preserve_name,preserve_transform);obj.clear();obj.update({"id":str(args.get("id")),**data});
             if old_cid:_component_bom_upsert(str(old_cid),-1)
-            _component_bom_upsert(cid,1);changed=obj["id"]
+            _component_bom_upsert(cid,1);PROJECT["bom"][:]=[x for x in PROJECT["bom"] if int(x.get("qty",1) or 0)>0];changed=obj["id"]
         elif op=="delete":
             oid=str(args.get("id"));victim=next((o for o in PROJECT["objects"] if o["id"]==oid),None);PROJECT["objects"][:]=[o for o in PROJECT["objects"] if o["id"]!=oid];PROJECT.setdefault("connections",[])[:]=[x for x in PROJECT["connections"] if x.get("a",{}).get("object_id")!=oid and x.get("b",{}).get("object_id")!=oid];
             if victim and victim.get("component_ref"):_component_bom_upsert(str(victim["component_ref"]),-1)
             PROJECT["bom"][:]=[x for x in PROJECT["bom"] if int(x.get("qty",1) or 0)>0];changed=oid
         elif op=="add_feature":
-            obj=object_by_id(str(args.get("id")));obj.setdefault("features",[]).append(deepcopy(args.get("feature") or {}));changed=obj["id"]
+            obj=object_by_id(str(args.get("id")));
+            if obj.get("kind")=="component":raise ValueError("Purchased component geometry cannot receive CAD features. Model machining as a custom/fabricated derivative instead.")
+            obj.setdefault("features",[]).append(deepcopy(args.get("feature") or {}));changed=obj["id"]
         elif op=="delete_feature":
-            obj=object_by_id(str(args.get("id")));idx=int(args.get("index",-1));obj["features"].pop(idx);changed=obj["id"]
+            obj=object_by_id(str(args.get("id")));
+            if obj.get("kind")=="component":raise ValueError("Purchased component geometry is immutable")
+            idx=int(args.get("index",-1));obj["features"].pop(idx);changed=obj["id"]
         elif op in {"add_joint","add_load","add_constraint","set_requirement","add_bom_item","add_note"}:
             mapping={"add_joint":"joints","add_load":"loads","add_constraint":"constraints","set_requirement":"requirements","add_bom_item":"bom","add_note":"notebook"}; key=mapping[op]; item=deepcopy(args);item.setdefault("id",uid());PROJECT[key].append(item);changed=None
         elif op in {"delete_joint","delete_load","delete_constraint","delete_requirement","delete_bom_item"}:
