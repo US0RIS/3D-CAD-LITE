@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import cadquery as cq
+import component_registry
+import physical_components
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.1.0-dev"
 DATA_DIR = Path(os.environ.get("FORGECAD_DATA_DIR") or (Path.home()/".forgecad"))
 PROJECTS = DATA_DIR / "projects"
 EXPORTS = DATA_DIR / "exports"
@@ -41,12 +43,12 @@ def _transform() -> dict[str, list[float]]:
 def default_project() -> dict[str, Any]:
     base_id=uid(); pi_id=uid()
     return {
-        "schema": 3, "version": APP_VERSION, "name":"ForgeCAD Project", "created_at":now(), "updated_at":now(),
+        "schema": 4, "version": APP_VERSION, "name":"ForgeCAD Project", "created_at":now(), "updated_at":now(),
         "objects":[
             {"id":base_id,"name":"Raspberry Pi 5 Mounting Plate","kind":"mounting_plate","params":{"x":105.0,"y":76.0,"thickness":3.0,"corner_radius":4.0,"mount_x":58.0,"mount_y":49.0,"mount_hole_diameter":2.7,"standoff_od":6.0,"standoff_height":6.0,"chassis_hole_diameter":4.0},"material":"aluminum_6061_t6","transform":_transform(),"features":[],"semantic":{"role":"structural_base","tags":["machined","reference","raspberry-pi-5","m2.5"],"description":"Machined Raspberry Pi 5 mounting plate with 58 x 49 mm M2.5 standoff pattern and corner chassis holes."},"visible":True},
-            {"id":pi_id,"name":"Raspberry Pi 5 8GB","kind":"component","params":{"x":85.0,"y":56.0,"z":17.0},"material":"pcb_fr4","transform":{"position":[0.0,0.0,6.8],"rotation_deg":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0]},"features":[],"semantic":{"role":"embedded_compute","tags":["electronics","programmable","raspberry-pi-5","physical-geometry"],"description":"Raspberry Pi 5 8GB physical-layout model with PCB, mounting holes, I/O connectors, GPIO and major packages.","mechanical_source":"https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-mechanical-drawing.pdf","geometry_fidelity":"mechanical-envelope-detailed"},"component_ref":"compute.raspberry_pi_5_8gb","code":{"platform":"python/linux","entrypoint":"main.py","files":{"main.py":"from time import sleep\n\n\ndef main():\n    print('ForgeCAD device online')\n    while True:\n        sleep(1)\n\nif __name__ == '__main__':\n    main()\n","README.md":"# Raspberry Pi workspace\n\nEdit and version device code together with the mechanical design.\n"}},"visible":True},
+            {"id":pi_id,"name":"Raspberry Pi 5 8GB","kind":"component","params":{"x":85.0,"y":56.0,"z":17.0},"material":"pcb_fr4","transform":{"position":[0.0,0.0,6.8],"rotation_deg":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0]},"features":[],"semantic":{"role":"embedded_compute","tags":["electronics","programmable","raspberry-pi-5","physical-geometry"],"description":"Raspberry Pi 5 8GB physical-layout model with PCB, mounting holes, I/O connectors, GPIO and major packages.","mechanical_source":"https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-mechanical-drawing.pdf","geometry_fidelity":"mechanical-envelope-detailed"},"component_ref":"compute.raspberry_pi_5_8gb","component_snapshot":component_registry.component_snapshot("compute.raspberry_pi_5_8gb"),"interfaces":component_registry.component_by_id("compute.raspberry_pi_5_8gb").get("interfaces",[]),"code":{"platform":"python/linux","entrypoint":"main.py","files":{"main.py":"from time import sleep\n\n\ndef main():\n    print('ForgeCAD device online')\n    while True:\n        sleep(1)\n\nif __name__ == '__main__':\n    main()\n","README.md":"# Raspberry Pi workspace\n\nEdit and version device code together with the mechanical design.\n"}},"visible":True},
         ],
-        "joints":[], "loads":[], "constraints":[], "requirements":[], "bom":[], "simulations":[], "notebook":[],
+        "joints":[], "loads":[], "constraints":[], "requirements":[], "bom":[component_registry.bom_item("compute.raspberry_pi_5_8gb")], "connections":[], "simulations":[], "notebook":[],
         "settings":{"ollama_model":os.environ.get("FORGECAD_OLLAMA_MODEL","qwen3:8b"),"units":"mm","coordinate_system":"Z-up"},
         "ledger":[],
     }
@@ -90,11 +92,21 @@ def load() -> None:
         return
 
 def upgrade_project(p: dict[str, Any]) -> dict[str, Any]:
-    q=deepcopy(p); q.setdefault("schema",3); q.setdefault("version",APP_VERSION); q.setdefault("name","ForgeCAD Project")
-    for k,default in (("objects",[]),("joints",[]),("loads",[]),("constraints",[]),("requirements",[]),("bom",[]),("simulations",[]),("notebook",[]),("ledger",[])): q.setdefault(k,deepcopy(default))
+    q=deepcopy(p); q["schema"]=max(4,int(q.get("schema",0) or 0)); q["version"]=APP_VERSION; q.setdefault("name","ForgeCAD Project")
+    for k,default in (("objects",[]),("joints",[]),("loads",[]),("constraints",[]),("requirements",[]),("bom",[]),("connections",[]),("simulations",[]),("notebook",[]),("ledger",[])): q.setdefault(k,deepcopy(default))
     q.setdefault("settings",{"ollama_model":"qwen3:8b","units":"mm"})
     for o in q["objects"]:
         o.setdefault("id",uid());o.setdefault("features",[]);o.setdefault("transform",_transform());o.setdefault("material","aluminum_6061_t6");o.setdefault("semantic",{});o.setdefault("visible",True)
+        if o.get("component_ref"):
+            try:
+                snap=component_registry.component_snapshot(str(o["component_ref"]));o.setdefault("component_snapshot",snap);o.setdefault("interfaces",deepcopy(snap.get("interfaces",[])))
+            except KeyError: pass
+    # Legacy projects did not automatically put purchased component instances in the BOM.
+    bom_refs={x.get("component_ref") for x in q.get("bom",[])}
+    for o in q["objects"]:
+        if o.get("component_ref") and o.get("component_ref") not in bom_refs:
+            try:q["bom"].append(component_registry.bom_item(str(o["component_ref"])))
+            except KeyError:pass
     return q
 
 def reset_project() -> dict[str, Any]:
@@ -174,8 +186,9 @@ def _pi5_local_parts() -> list[tuple[Any,str]]:
 
 
 def _component_parts(obj: dict[str, Any]) -> list[tuple[Any,str]]|None:
-    if obj.get("component_ref")=="compute.raspberry_pi_5_8gb": return _pi5_local_parts()
-    return None
+    # v1.1 resolves every known purchased component through the physical component layer.
+    parts=physical_components.component_parts(obj)
+    return parts if parts else None
 
 
 def _base_shape(obj: dict[str, Any]):
@@ -241,11 +254,14 @@ def build_shape(obj: dict[str, Any]):
 
 def object_metrics(obj: dict[str, Any]) -> dict[str, Any]:
     sh=build_shape(obj); bb=sh.BoundingBox(); vol=float(sh.Volume()); mat=MATERIALS.get(obj.get("material"),MATERIALS["aluminum_6061_t6"]); mass=vol*1e-9*float(mat["density_kg_m3"]); c=sh.Center()
-    return {"volume_mm3":vol,"area_mm2":float(sh.Area()),"mass_kg":mass,"bounds_mm":{"x":bb.xlen,"y":bb.ylen,"z":bb.zlen},"centroid_mm":[c.x,c.y,c.z],"material":mat["name"]}
+    if obj.get("kind")=="component":
+        definition=physical_components.component_definition(obj)
+        if definition and definition.get("mass_g") is not None:mass=float(definition["mass_g"])/1000.0
+    return {"volume_mm3":vol,"area_mm2":float(sh.Area()),"mass_kg":mass,"bounds_mm":{"x":bb.xlen,"y":bb.ylen,"z":bb.zlen},"centroid_mm":[c.x,c.y,c.z],"material":mat["name"],"geometry_fidelity":obj.get("component_snapshot",{}).get("geometry",{}).get("fidelity") if obj.get("kind")=="component" else "exact_brep"}
 
 def project_metrics() -> dict[str, Any]:
-    vals=[object_metrics(o) for o in PROJECT["objects"] if o.get("visible",True)]
-    return {"object_count":len(PROJECT["objects"]),"mass_kg":sum(x["mass_kg"] for x in vals),"bom_cost_usd":sum(float(x.get("unit_cost_usd",0))*float(x.get("qty",1)) for x in PROJECT.get("bom",[])),"active_design":ACTIVE_DESIGN}
+    vals=[object_metrics(o) for o in PROJECT["objects"] if o.get("visible",True)]; purchased=sum(o.get("kind")=="component" for o in PROJECT["objects"]); custom=len(PROJECT["objects"])-purchased
+    return {"object_count":len(PROJECT["objects"]),"purchased_component_count":purchased,"custom_part_count":custom,"connection_count":len(PROJECT.get("connections",[])),"mass_kg":sum(x["mass_kg"] for x in vals),"bom_cost_usd":sum(float(x.get("unit_cost_usd",0) or 0)*float(x.get("qty",1) or 1) for x in PROJECT.get("bom",[])),"active_design":ACTIVE_DESIGN}
 
 def tessellate(obj: dict[str, Any], tolerance: float=.35) -> dict[str, Any]:
     parts=_component_parts(obj) if obj.get("kind")=="component" else None
@@ -348,6 +364,18 @@ def requirement_checks() -> list[dict[str,Any]]:
     return out
 
 
+def _component_bom_upsert(component_id: str, qty_delta: int=1) -> dict[str,Any]:
+    for item in PROJECT.setdefault("bom",[]):
+        if item.get("component_ref")==component_id:
+            item["qty"]=max(0,int(item.get("qty",0))+int(qty_delta));return item
+    item=component_registry.bom_item(component_id,int(qty_delta));item.setdefault("id",uid());PROJECT["bom"].append(item);return item
+
+def _component_instance_args(component_id: str, name: str|None=None, transform: dict[str,Any]|None=None) -> dict[str,Any]:
+    args=component_registry.make_project_object(component_id,name=name,transform=transform);args.setdefault("transform",_transform());args.setdefault("features",[]);args.setdefault("visible",True);return args
+
+def reality_check() -> dict[str,Any]:
+    return physical_components.reality_check(PROJECT)
+
 def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: str="") -> dict[str,Any]:
     args=deepcopy(args or {})
     with LOCK:
@@ -355,9 +383,11 @@ def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: 
         if mutation: ensure_mutable(actor,reason or op)
         if op=="add":
             obj={"id":uid(),"name":args.get("name","Part"),"kind":args.get("kind","box"),"params":args.get("params",{"x":20,"y":20,"z":20}),"material":args.get("material","aluminum_6061_t6"),"transform":args.get("transform",_transform()),"features":deepcopy(args.get("features",[])),"semantic":args.get("semantic",{}),"visible":True}
-            for optional in ("component_ref","code"):
+            for optional in ("component_ref","component_snapshot","interfaces","code"):
                 if optional in args: obj[optional]=deepcopy(args[optional])
             PROJECT["objects"].append(obj); changed=obj["id"]
+        elif op=="add_component":
+            cid=str(args.get("component_id") or args.get("id") or "");data=_component_instance_args(cid,args.get("name"),args.get("transform"));obj={"id":uid(),**deepcopy(data)};PROJECT["objects"].append(obj);_component_bom_upsert(cid,1);changed=obj["id"]
         elif op=="update":
             obj=object_by_id(str(args.pop("id"))); changed=obj["id"]
             for k,v in args.items():
@@ -366,8 +396,24 @@ def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: 
             obj=object_by_id(str(args.get("id"))); changed=obj["id"]; t=obj.setdefault("transform",_transform())
             for k in ("position","rotation_deg","scale"):
                 if k in args:t[k]=[float(x) for x in args[k]]
+        elif op=="mate_components":
+            source=object_by_id(str(args.get("source_id")));target=object_by_id(str(args.get("target_id")));physical_components.mate_objects(source,target,str(args.get("source_interface")),str(args.get("target_interface")),float(args.get("gap_mm",0)));physical_components.connect_interfaces(PROJECT,source,str(args.get("source_interface")),target,str(args.get("target_interface")),"mechanical");changed=source["id"]
+        elif op=="connect_interfaces":
+            a=object_by_id(str(args.get("a_id")));b=object_by_id(str(args.get("b_id")));physical_components.connect_interfaces(PROJECT,a,str(args.get("a_interface")),b,str(args.get("b_interface")),str(args.get("kind","auto")));changed=None
+        elif op=="disconnect":
+            iid=str(args.get("id"));before=len(PROJECT.setdefault("connections",[]));PROJECT["connections"][:]=[x for x in PROJECT["connections"] if str(x.get("id"))!=iid];
+            if len(PROJECT["connections"])==before:raise KeyError(iid)
+            changed=None
+        elif op=="sync_component":
+            obj=object_by_id(str(args.get("id")));cid=str(obj.get("component_ref") or "");fresh=component_registry.component_snapshot(cid);obj["component_snapshot"]=fresh;obj["interfaces"]=deepcopy(fresh.get("interfaces",[]));dims=fresh.get("dimensions_mm",[20,20,20]);obj["params"].update({"x":float(dims[0]),"y":float(dims[1]),"z":float(dims[2])});obj.setdefault("semantic",{}).update({"geometry_fidelity":fresh.get("geometry",{}).get("fidelity"),"trust_score":fresh.get("trust_score",0)});changed=obj["id"]
+        elif op=="replace_component":
+            obj=object_by_id(str(args.get("id")));old_cid=obj.get("component_ref");cid=str(args.get("component_id"));preserve_transform=deepcopy(obj.get("transform",_transform()));preserve_name=obj.get("name");data=_component_instance_args(cid,args.get("name") or preserve_name,preserve_transform);obj.clear();obj.update({"id":str(args.get("id")),**data});
+            if old_cid:_component_bom_upsert(str(old_cid),-1)
+            _component_bom_upsert(cid,1);changed=obj["id"]
         elif op=="delete":
-            oid=str(args.get("id"));PROJECT["objects"][:]=[o for o in PROJECT["objects"] if o["id"]!=oid];changed=oid
+            oid=str(args.get("id"));victim=next((o for o in PROJECT["objects"] if o["id"]==oid),None);PROJECT["objects"][:]=[o for o in PROJECT["objects"] if o["id"]!=oid];PROJECT.setdefault("connections",[])[:]=[x for x in PROJECT["connections"] if x.get("a",{}).get("object_id")!=oid and x.get("b",{}).get("object_id")!=oid];
+            if victim and victim.get("component_ref"):_component_bom_upsert(str(victim["component_ref"]),-1)
+            PROJECT["bom"][:]=[x for x in PROJECT["bom"] if int(x.get("qty",1) or 0)>0];changed=oid
         elif op=="add_feature":
             obj=object_by_id(str(args.get("id")));obj.setdefault("features",[]).append(deepcopy(args.get("feature") or {}));changed=obj["id"]
         elif op=="delete_feature":
