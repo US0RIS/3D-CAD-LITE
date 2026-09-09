@@ -1,12 +1,13 @@
-name: Build ForgeCAD v1 macOS installer
+name: Build ForgeCAD v1.0.1 macOS installer
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - forgecad-release-package-final2
+      - forgecad-release-v1.0.1
     paths:
       - "v1/release-b64/**"
+      - "v1/overrides/v101_geometry_patch.py"
       - ".github/workflows/macos-v1-build.yml"
 
 jobs:
@@ -24,7 +25,7 @@ jobs:
           uname -a
           test "$(uname -m)" = "arm64"
 
-      - name: Reconstruct and verify release source
+      - name: Reconstruct and verify v1.0.0 release source
         shell: bash
         run: |
           set -euo pipefail
@@ -33,11 +34,21 @@ jobs:
           import base64, hashlib
           root = Path.cwd()
           parts = []
+          expected_part_hashes = [
+              'd987501021a90c5d185f3efb22ccf02c82c3a43bb68d610939b4c94f05c26950',
+              '730fe01493f6d5ddb91ae28acfee07af428180d4b35c96c6e304c3738efb6322',
+              '153d06c4e75f3bd1462f9d2af126d27ac0a82e2ed3bb96ccfb6eb16b87c85643',
+              'b83135086ff205db151c6d5d932abed584c51e25ee3a1c1c647d72484e04c5e3',
+          ]
           for i in range(4):
               p = root / 'v1' / 'release-b64' / f'part{i:02d}.txt'
               if not p.exists():
                   raise SystemExit(f'Missing release source part: {p}')
-              parts.append(p.read_text().strip())
+              text = p.read_text().strip()
+              ph = hashlib.sha256(text.encode()).hexdigest()
+              if ph != expected_part_hashes[i]:
+                  raise SystemExit(f'part{i:02d} SHA256 mismatch: {ph}')
+              parts.append(text)
           raw = base64.b64decode(''.join(parts), validate=True)
           if len(raw) != 47969:
               raise SystemExit(f'Release snapshot length mismatch: {len(raw)}')
@@ -46,7 +57,7 @@ jobs:
           if sha != expected:
               raise SystemExit(f'Release snapshot SHA256 mismatch: {sha}')
           (root / 'ForgeCAD-v1-source.zip').write_bytes(raw)
-          print('Verified release source:', sha)
+          print('Verified base release source:', sha)
           PY
           rm -rf v1-build-src
           mkdir v1-build-src
@@ -57,6 +68,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Apply v1.0.1 physical-geometry patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python v1/overrides/v101_geometry_patch.py v1-build-src
+          grep -q 'APP_VERSION = "1.0.1"' v1-build-src/core.py
+          grep -q 'geometry_profile="raspberry_pi_5"' v1-build-src/components.py
 
       - name: Install test-client compatibility dependency
         shell: bash
@@ -74,7 +93,7 @@ jobs:
           set -euo pipefail
           MOUNT="$RUNNER_TEMP/ForgeCAD-DMG"
           mkdir -p "$MOUNT"
-          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" dist/ForgeCAD-v1-macOS-arm64.dmg
+          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" dist/ForgeCAD-v1.0.1-macOS-arm64.dmg
           trap 'hdiutil detach "$MOUNT" || true' EXIT
           "$MOUNT/ForgeCAD.app/Contents/MacOS/ForgeCAD" --self-test
           hdiutil detach "$MOUNT"
@@ -84,21 +103,21 @@ jobs:
         shell: bash
         working-directory: v1-build-src
         run: |
-          shasum -a 256 dist/ForgeCAD-v1-macOS-arm64.dmg
-          ls -lh dist/ForgeCAD-v1-macOS-arm64.dmg
+          shasum -a 256 dist/ForgeCAD-v1.0.1-macOS-arm64.dmg
+          ls -lh dist/ForgeCAD-v1.0.1-macOS-arm64.dmg
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          name: ForgeCAD-v1-macOS-arm64-DMG
-          path: v1-build-src/dist/ForgeCAD-v1-macOS-arm64.dmg
+          name: ForgeCAD-v1.0.1-macOS-arm64-DMG
+          path: v1-build-src/dist/ForgeCAD-v1.0.1-macOS-arm64.dmg
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload macOS app ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: ForgeCAD-v1-macOS-arm64-App
-          path: v1-build-src/dist/ForgeCAD-v1-macOS-arm64-app.zip
+          name: ForgeCAD-v1.0.1-macOS-arm64-App
+          path: v1-build-src/dist/ForgeCAD-v1.0.1-macOS-arm64-app.zip
           if-no-files-found: error
           retention-days: 30
