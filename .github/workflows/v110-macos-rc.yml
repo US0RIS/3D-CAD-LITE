@@ -1,0 +1,40 @@
+name: Build ForgeCAD v1.1 macOS release candidate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: test "$(uname -m)" = "arm64"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and smoke-test v1.1 app
+        shell: bash
+        working-directory: v1.1/base
+        run: bash macos/build.sh
+      - name: Verify candidate version and artifacts
+        shell: bash
+        working-directory: v1.1/base
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import core; print(core.APP_VERSION)')"
+          test -f "dist/ForgeCAD-v${VERSION}-macOS-arm64.dmg"
+          test -f "dist/ForgeCAD-v${VERSION}-macOS-arm64-app.zip"
+          shasum -a 256 "dist/ForgeCAD-v${VERSION}-macOS-arm64.dmg" "dist/ForgeCAD-v${VERSION}-macOS-arm64-app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForgeCAD-v1.1-macOS-release-candidate
+          path: |
+            v1.1/base/dist/ForgeCAD-v*-macOS-arm64.dmg
+            v1.1/base/dist/ForgeCAD-v*-macOS-arm64-app.zip
+          if-no-files-found: error
+          retention-days: 30
