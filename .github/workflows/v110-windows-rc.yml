@@ -1,0 +1,41 @@
+name: Build ForgeCAD v1.1 Windows release candidate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Build and smoke-test v1.1 app
+        shell: pwsh
+        working-directory: v1.1/base
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/build.ps1
+      - name: Install and smoke-test packaged candidate
+        shell: pwsh
+        working-directory: v1.1/base
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/ci_installer_smoke.ps1
+      - name: Hash candidate installer
+        shell: pwsh
+        working-directory: v1.1/base
+        run: |
+          if (-not (Test-Path "dist/installer/ForgeCAD-Setup.exe")) { throw "Installer missing" }
+          Get-FileHash "dist/installer/ForgeCAD-Setup.exe" -Algorithm SHA256
+          Get-Item "dist/installer/ForgeCAD-Setup.exe" | Select-Object Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ForgeCAD-v1.1-Windows-release-candidate
+          path: v1.1/base/dist/installer/ForgeCAD-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
