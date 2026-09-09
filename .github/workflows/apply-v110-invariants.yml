@@ -1,0 +1,30 @@
+name: Apply ForgeCAD v1.1 component invariants
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/integrate_v110_invariants.py"
+      - ".github/workflows/apply-v110-invariants.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v110-invariants]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+      - run: python v1.1/integrate_v110_invariants.py v1.1/base
+      - run: python -m compileall -q v1.1/base
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/core.py
+          git commit -m "Enforce purchased component engineering invariants [v110-invariants]"
+          git pull --rebase origin forgecad-v1.1.0-dev
+          git push origin HEAD:forgecad-v1.1.0-dev
