@@ -1,0 +1,33 @@
+name: ForgeCAD v1.1 development CI
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/base/**"
+      - ".github/workflows/v110-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v1.1/base/requirements.txt
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r v1.1/base/requirements.txt scipy numpy
+      - name: Compile Python source
+        working-directory: v1.1/base
+        run: python -m compileall -q .
+      - name: Run ForgeCAD regression suite
+        working-directory: v1.1/base
+        env:
+          PYTHONPATH: .
+        run: python smoke_test.py
