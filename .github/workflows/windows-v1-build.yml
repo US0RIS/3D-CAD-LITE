@@ -66,6 +66,17 @@ jobs:
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
+      - name: Remove optional portable-ZIP packaging race
+        shell: pwsh
+        working-directory: v1-build-src
+        run: |
+          $path = "windows/build.ps1"
+          $lines = Get-Content $path
+          $lines = $lines | Where-Object {
+            ($_ -notmatch 'ForgeCAD-Windows-x64\.zip') -and ($_ -notmatch '^Compress-Archive ')
+          }
+          Set-Content -Path $path -Value $lines -Encoding UTF8
+
       - name: Build Windows application and installer
         shell: pwsh
         working-directory: v1-build-src
@@ -88,13 +99,5 @@ jobs:
         with:
           name: ForgeCAD-v1-Windows-Setup
           path: v1-build-src/dist/installer/ForgeCAD-Setup.exe
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload portable Windows app
-        uses: actions/upload-artifact@v4
-        with:
-          name: ForgeCAD-v1-Windows-x64
-          path: v1-build-src/dist/ForgeCAD-Windows-x64.zip
           if-no-files-found: error
           retention-days: 30
