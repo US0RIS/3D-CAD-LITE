@@ -1,12 +1,13 @@
-name: Build ForgeCAD v1 Windows installer
+name: Build ForgeCAD v1.0.1 Windows installer
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - forgecad-release-package-final2
+      - forgecad-release-v1.0.1
     paths:
       - "v1/release-b64/**"
+      - "v1/overrides/v101_geometry_patch.py"
       - ".github/workflows/windows-v1-build.yml"
 
 jobs:
@@ -17,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct and verify release source
+      - name: Reconstruct and verify v1.0.0 release source
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -50,13 +51,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           Expand-Archive -Path $src -DestinationPath $dst -Force
           if (-not (Test-Path (Join-Path $dst "server.py"))) { throw "Snapshot extraction did not produce server.py" }
-          Write-Host "Verified release source: $hash"
+          Write-Host "Verified base release source: $hash"
 
       - name: Set up Python 3.12 x64
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           architecture: "x64"
+
+      - name: Apply v1.0.1 physical-geometry patch
+        shell: pwsh
+        run: |
+          python v1/overrides/v101_geometry_patch.py v1-build-src
+          if ($LASTEXITCODE -ne 0) { throw "v1.0.1 geometry patch failed" }
+          Select-String -Path v1-build-src/core.py -SimpleMatch 'APP_VERSION = "1.0.1"' | Out-Null
+          Select-String -Path v1-build-src/components.py -SimpleMatch 'geometry_profile="raspberry_pi_5"' | Out-Null
 
       - name: Install test-client compatibility dependency
         shell: pwsh
@@ -65,17 +74,6 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
-
-      - name: Remove optional portable-ZIP packaging race
-        shell: pwsh
-        working-directory: v1-build-src
-        run: |
-          $path = "windows/build.ps1"
-          $lines = Get-Content $path
-          $lines = $lines | Where-Object {
-            ($_ -notmatch 'ForgeCAD-Windows-x64\.zip') -and ($_ -notmatch '^Compress-Archive ')
-          }
-          Set-Content -Path $path -Value $lines -Encoding UTF8
 
       - name: Build Windows application and installer
         shell: pwsh
@@ -97,7 +95,7 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: ForgeCAD-v1-Windows-Setup
+          name: ForgeCAD-v1.0.1-Windows-Setup
           path: v1-build-src/dist/installer/ForgeCAD-Setup.exe
           if-no-files-found: error
           retention-days: 30
