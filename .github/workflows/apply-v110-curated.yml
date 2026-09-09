@@ -1,0 +1,33 @@
+name: Apply ForgeCAD v1.1 curated manufacturer catalog
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/integrate_v110_curated.py"
+      - ".github/workflows/apply-v110-curated.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v110-curated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+      - name: Apply curated catalog integration
+        run: python v1.1/integrate_v110_curated.py v1.1/base
+      - name: Compile source
+        run: python -m compileall -q v1.1/base
+      - name: Commit curated catalog integration
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/component_registry.py v1.1/base/physical_components.py
+          git commit -m "Integrate manufacturer-curated component catalog [v110-curated]"
+          git pull --rebase origin forgecad-v1.1.0-dev
+          git push origin HEAD:forgecad-v1.1.0-dev
