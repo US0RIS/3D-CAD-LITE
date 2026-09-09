@@ -13,6 +13,9 @@ import component_registry as components
 import component_importers
 import physical_components
 import project_bundle
+import acceptance_design
+import assembly_validation
+import mounting
 
 ROOT=Path(__file__).resolve().parent;STATIC=ROOT/"static"
 class Command(BaseModel): op:str; args:dict[str,Any]=Field(default_factory=dict); actor:str="human"; reason:str=""
@@ -177,6 +180,24 @@ def connection_delete(connection_id:str):
 def reality_check():return core.reality_check()
 @app.get("/api/system-check")
 def system_check():return core.reality_check()
+@app.get("/api/assembly/check")
+def assembly_check(min_clearance_mm:float=1.0):return assembly_validation.validate_assembly(core.PROJECT,core.build_shape,min_clearance_mm=min_clearance_mm)
+@app.get("/api/mounting/plan/{plate_id}")
+def mounting_plan(plate_id:str,component_ids:str|None=None,plate_thickness_mm:float|None=None,standoff_mm:float=6.0):
+    ids=[x for x in (component_ids or "").split(",") if x] or None
+    try:return mounting.plan_mounting(core.PROJECT,plate_id,ids,plate_thickness_mm=plate_thickness_mm,standoff_mm=standoff_mm)
+    except KeyError as e:fail(e,404)
+    except Exception as e:fail(e)
+@app.post("/api/templates/v1.1-acceptance")
+def install_v110_acceptance():
+    try:
+        project=acceptance_design.install_into_core();return {"ok":True,"project":project,"report":acceptance_design.acceptance_report(project,core.build_shape)}
+    except Exception as e:fail(e)
+@app.get("/api/templates/v1.1-acceptance")
+def preview_v110_acceptance():
+    try:
+        project=acceptance_design.build_project();return {"project":project,"report":acceptance_design.acceptance_report(project,core.build_shape)}
+    except Exception as e:fail(e)
 
 @app.get("/api/code/{object_id}")
 def code_ws(object_id:str,include_contents:bool=True):

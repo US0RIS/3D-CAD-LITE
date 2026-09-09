@@ -375,7 +375,14 @@ def _component_instance_args(component_id: str, name: str|None=None, transform: 
     args=component_registry.make_project_object(component_id,name=name,transform=transform);args.setdefault("transform",_transform());args.setdefault("features",[]);args.setdefault("visible",True);return args
 
 def reality_check() -> dict[str,Any]:
-    return system_validation.validate_system(PROJECT)
+    system=system_validation.validate_system(PROJECT)
+    try:
+        import assembly_validation
+        assembly=assembly_validation.validate_assembly(PROJECT,build_shape,min_clearance_mm=1.0)
+    except Exception as e:
+        assembly={"ok":True,"counts":{"error":0,"warning":1,"info":0},"risks":[{"severity":"warning","code":"assembly_check_unavailable","message":str(e)}],"collisions":[],"low_clearances":[]}
+    risks=list(system.get("risks",[]))+list(assembly.get("risks",[]));counts={s:sum(r.get("severity")==s for r in risks) for s in ("error","warning","info")}
+    return {**system,"ok":counts["error"]==0,"counts":counts,"risks":risks,"assembly":assembly}
 
 def execute(op: str, args: dict[str,Any]|None=None, actor: str="human", reason: str="") -> dict[str,Any]:
     args=deepcopy(args or {})

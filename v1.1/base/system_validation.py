@@ -102,7 +102,7 @@ def validate_power(project:dict[str,Any])->list[dict[str,Any]]:
             if dv is not None and abs(sv-dv)>max(.25,.05*max(abs(sv),abs(dv))):risks.append({"severity":"error","code":"voltage_mismatch","connection_id":rec["edge"].get("id"),"message":f"{so.get('name')} supplies approximately {sv:g} V but {do.get('name')} expects {dv:g} V."})
             if dmin is not None and sv<dmin:risks.append({"severity":"error","code":"undervoltage","connection_id":rec["edge"].get("id"),"message":f"{do.get('name')} input minimum is {dmin:g} V; modeled supply is {sv:g} V."})
             if dmax is not None and sv>dmax:risks.append({"severity":"error","code":"overvoltage","connection_id":rec["edge"].get("id"),"message":f"{do.get('name')} input maximum is {dmax:g} V; modeled supply is {sv:g} V."})
-        load_current=_number(dm,"current_a","rated_current_a","max_current_a")
+        load_current=_number(dm,"current_a","rated_current_a","max_current_a","recommended_current_a")
         source_max=_number(sm,"max_current_a","continuous_current_a","peak_current_a")
         if load_current is not None and source_max is not None and load_current>source_max+1e-9:risks.append({"severity":"error","code":"driver_overcurrent","connection_id":rec["edge"].get("id"),"message":f"{do.get('name')} requires {load_current:g} A but {so.get('name')} interface is rated {source_max:g} A."})
         if load_current is not None:source_loads[so["id"]]+=load_current
