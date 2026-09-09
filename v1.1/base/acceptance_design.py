@@ -34,7 +34,10 @@ COMPONENTS={
 POSITIONS={
     "supply":[-62.0,35.0,17.0],
     "pi":[55.0,35.0,8.0],
-    "solenoid":[-63.0,-55.0,8.0],
+    # The solenoid parametric model extends below its nominal envelope because the
+    # return/plunger geometry is represented explicitly.  11 mm gives real plate
+    # clearance rather than suppressing an interference reported by the checker.
+    "solenoid":[-63.0,-55.0,11.0],
     "driver":[18.0,-52.0,5.0],
     "buck":[65.0,-52.0,6.0],
 }
