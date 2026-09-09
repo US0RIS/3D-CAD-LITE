@@ -1,9 +1,10 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
-$Version = python -c "import re,pathlib; m=re.search(r'^APP_VERSION\s*=\s*\"([^\"]+)\"',pathlib.Path('core.py').read_text(),re.M); print(m.group(1) if m else (_ for _ in ()).throw(RuntimeError('APP_VERSION not found')))"
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($Version)) { throw "Unable to determine ForgeCAD version" }
-$Version = $Version.Trim()
+$CoreText = Get-Content "core.py" -Raw
+$VersionMatch = [regex]::Match($CoreText, '(?m)^APP_VERSION\s*=\s*"([^"]+)"')
+if (-not $VersionMatch.Success) { throw "Unable to determine ForgeCAD version from core.py" }
+$Version = $VersionMatch.Groups[1].Value
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt -r windows/requirements-build.txt "httpx>=0.28,<1"
 python prepare_frontend.py
