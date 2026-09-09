@@ -8,13 +8,18 @@ from fastapi import Body, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-import agents, analysis, components, core, jarvis_bridge, software
+import agents, analysis, core, jarvis_bridge, software
+import component_registry as components
+import physical_components
 
 ROOT=Path(__file__).resolve().parent;STATIC=ROOT/"static"
 class Command(BaseModel): op:str; args:dict[str,Any]=Field(default_factory=dict); actor:str="human"; reason:str=""
 class AgentMessage(BaseModel): text:str; model:str|None=None; role:str="designer"; execute:bool=True
 class ChatMessage(BaseModel): text:str; model:str|None=None; selected_id:str|None=None; execute:bool=False
-class ComponentSearchBody(BaseModel): query:str=""; category:str|None=None; constraints:dict[str,Any]=Field(default_factory=dict); weights:dict[str,float]=Field(default_factory=dict); limit:int=20; include_infeasible:bool=True
+class ComponentSearchBody(BaseModel): query:str=""; category:str|None=None; constraints:dict[str,Any]=Field(default_factory=dict); weights:dict[str,float]=Field(default_factory=dict); limit:int=20; include_infeasible:bool=True; min_trust:int=0; min_geometry_fidelity:str|None=None
+class ComponentSelectBody(BaseModel): query:str=""; category:str|None=None; requirements:dict[str,Any]=Field(default_factory=dict); limit:int=8
+class MateBody(BaseModel): source_id:str; source_interface:str; target_id:str; target_interface:str; gap_mm:float=0
+class ConnectBody(BaseModel): a_id:str; a_interface:str; b_id:str; b_interface:str; kind:str="auto"
 class CodeFileBody(BaseModel): path:str; content:str=""
 class CodeRenameBody(BaseModel): old_path:str; new_path:str
 class DesignStatusBody(BaseModel): name:str; status:str; note:str=""; physical_verified:bool=False
@@ -97,24 +102,65 @@ def design_status(body:DesignStatusBody):
     except KeyError as e:fail(e,404)
 
 @app.get("/api/components")
-def comp_list(category:str|None=None):return {"categories":components.categories(),"total":len(components.REGISTRY),"results":components.all_components(category)}
+def comp_list(category:str|None=None):
+    stats=components.registry_stats();return {"categories":components.categories(),"total":stats["total"],"stats":stats,"results":components.all_components(category)}
+@app.get("/api/components/schema")
+def comp_schema():return components.component_schema()
+@app.get("/api/components/stats")
+def comp_stats():return components.registry_stats()
+@app.get("/api/components/providers")
+def comp_providers():return components.provider_status()
+@app.post("/api/components/search")
+def comp_search(body:ComponentSearchBody):return components.search_components(body.query,body.category,body.constraints,body.weights,body.limit,body.include_infeasible,body.min_trust,body.min_geometry_fidelity)
+@app.post("/api/components/select")
+def comp_select(body:ComponentSelectBody):return components.select_component(body.requirements,category=body.category,query=body.query,limit=body.limit)
+@app.post("/api/components/import")
+def comp_import(payload:dict[str,Any]|list[dict[str,Any]]=Body(...)):
+    try:return components.import_components(payload)
+    except Exception as e:fail(e)
+@app.post("/api/components/import-pack")
+async def comp_import_pack(file:UploadFile=File(...)):
+    try:return components.import_catalog_pack_bytes(file.filename or "catalog.json",await file.read())
+    except Exception as e:fail(e)
 @app.get("/api/components/{component_id}")
 def comp_get(component_id:str):
     try:return components.component_by_id(component_id)
     except KeyError as e:fail(e,404)
-@app.post("/api/components/search")
-def comp_search(body:ComponentSearchBody):return components.search_components(body.query,body.category,body.constraints,body.weights,body.limit,body.include_infeasible)
-@app.post("/api/components/import")
-def comp_import(payload:dict[str,Any]|list[dict[str,Any]]=Body(...)):return components.import_components(payload)
-@app.post("/api/components/add/{component_id}")
-def comp_add(component_id:str):
-    try:
-        c=components.component_by_id(component_id);dims=c.get("dimensions_mm",[30,20,10]);args={"name":c["name"],"kind":"component","params":{"x":float(dims[0]),"y":float(dims[1]),"z":float(dims[2])},"material":c.get("material","abs"),"component_ref":c["id"],"semantic":{"role":c.get("category"),"tags":c.get("tags",[]),"component":c,"geometry_fidelity":"component-specific" if c.get("geometry_profile") else "envelope-proxy"}}
-        if c.get("programmable"):
-            platform=c.get("code_platform","generic");args["code"]={"platform":platform,"entrypoint":"main.py","files":{"main.py":"# ForgeCAD embedded code workspace\n\ndef main():\n    pass\n\nif __name__ == '__main__':\n    main()\n","README.md":f"# {c['name']}\n\nCode is versioned with this design branch.\n"}}
-        return core.execute("add",args,"human",f"add real component {c['name']}")
+@app.get("/api/components/{component_id}/compatible/{other_id}")
+def comp_compatible(component_id:str,other_id:str):
+    try:return {"a":component_id,"b":other_id,"interfaces":components.compatible_interfaces(component_id,other_id)}
+    except KeyError as e:fail(e,404)
+@app.post("/api/components/{component_id}/asset")
+async def comp_asset(component_id:str,file:UploadFile=File(...),role:str="geometry",source_kind:str="user_supplied",source_url:str|None=None):
+    try:return components.register_asset_bytes(component_id,file.filename or "asset.step",await file.read(),role=role,source_kind=source_kind,source_url=source_url)
     except KeyError as e:fail(e,404)
     except Exception as e:fail(e)
+@app.post("/api/components/add/{component_id}")
+def comp_add(component_id:str):
+    try:return core.execute("add_component",{"component_id":component_id},"human",f"add purchased component {component_id}")
+    except KeyError as e:fail(e,404)
+    except Exception as e:fail(e)
+@app.post("/api/components/sync/{object_id}")
+def comp_sync(object_id:str):
+    try:return core.execute("sync_component",{"id":object_id},"human","explicitly sync component registry snapshot")
+    except KeyError as e:fail(e,404)
+    except Exception as e:fail(e)
+@app.post("/api/assembly/mate")
+def assembly_mate(body:MateBody):
+    try:return core.execute("mate_components",body.model_dump(),"human","mate real-world component interfaces")
+    except KeyError as e:fail(e,404)
+    except Exception as e:fail(e)
+@app.post("/api/connections")
+def connection_add(body:ConnectBody):
+    try:return core.execute("connect_interfaces",body.model_dump(),"human","connect component interfaces")
+    except KeyError as e:fail(e,404)
+    except Exception as e:fail(e)
+@app.delete("/api/connections/{connection_id}")
+def connection_delete(connection_id:str):
+    try:return core.execute("disconnect",{"id":connection_id},"human","remove interface connection")
+    except KeyError as e:fail(e,404)
+@app.get("/api/reality-check")
+def reality_check():return core.reality_check()
 
 @app.get("/api/code/{object_id}")
 def code_ws(object_id:str,include_contents:bool=True):
@@ -174,7 +220,7 @@ def manufacturing(object_id:str,process:str="fdm"):
     try:return analysis.manufacturing_review(core.object_by_id(object_id),process)
     except Exception as e:fail(e)
 @app.get("/api/system/capabilities")
-def capabilities():return analysis.system_capabilities()|{"ollama":agents.status(),"component_count":len(components.REGISTRY)}
+def capabilities():return analysis.system_capabilities()|{"ollama":agents.status(),"component_count":components.registry_stats()["total"],"component_registry":components.registry_stats()}
 
 @app.get("/api/agent/status")
 def agent_status():return agents.status()
@@ -211,14 +257,13 @@ def j_history(limit:int=30,_:None=__import__('fastapi').Depends(require_jarvis))
 @app.get("/api/jarvis/diff")
 def j_diff(target:str,source:str|None=None,_:None=__import__('fastapi').Depends(require_jarvis)):return core.compare_branch(target,source)
 @app.post("/api/jarvis/component-select")
-def j_component(body:JarvisComponentBody,_:None=__import__('fastapi').Depends(require_jarvis)):return components.search_components(body.query,body.category,body.constraints,body.weights,10,True)
+def j_component(body:JarvisComponentBody,_:None=__import__('fastapi').Depends(require_jarvis)):return components.select_component(body.constraints,category=body.category,query=body.query,limit=10)
 @app.get("/api/jarvis/reality-scan")
 def j_reality(_:None=__import__('fastapi').Depends(require_jarvis)):
-    risks=[]
-    stale=sum(1 for s in core.PROJECT.get("simulations",[]) if s.get("stale"));
-    if stale:risks.append({"severity":"warning","message":f"{stale} prior analyses are stale after design changes."})
-    if not any(d.get("physical_verified") for d in core.DESIGNS.values()):risks.append({"severity":"info","message":"No design branch is marked physically verified."})
-    return {"risks":risks,"stale_simulations":stale,"trust":"Screening analyses do not replace physical verification."}
+    scan=core.reality_check();risks=list(scan.get("risks",[]));stale=sum(1 for s in core.PROJECT.get("simulations",[]) if s.get("stale"))
+    if stale:risks.append({"severity":"warning","code":"stale_analysis","message":f"{stale} prior analyses are stale after design changes."})
+    if not any(d.get("physical_verified") for d in core.DESIGNS.values()):risks.append({"severity":"info","code":"no_physical_verification","message":"No design branch is marked physically verified."})
+    return {**scan,"risks":risks,"stale_simulations":stale,"trust":"Component provenance and screening analyses do not replace physical verification."}
 @app.post("/api/jarvis/analyze")
 def j_analyze(body:JarvisAnalysisBody,_:None=__import__('fastapi').Depends(require_jarvis)):
     oid=body.object_id or (core.PROJECT["objects"][0]["id"] if core.PROJECT["objects"] else None)
@@ -239,7 +284,7 @@ def j_change(body:JarvisChangeBody,_:None=__import__('fastapi').Depends(require_
     return {"ok":True,"source_design":source,"new_design":core.ACTIVE_DESIGN,"plan":plan,"applied_commands":n,"requirements":core.requirement_checks(),"diff":core.compare_branch(source)}
 
 @app.get("/api/tools")
-def tools():return {"principle":"Human UI, local AI and Jarvis call the same deterministic typed operations; UI state is never authoritative.","operations":["add","update","transform","delete","add_feature","delete_feature","add_load","add_constraint","set_requirement","add_bom_item","add_note","code_write","code_delete","code_rename"],"analysis":["cantilever screening","reduced-order structural preview","modal screening","thermal screening","parameter optimization","manufacturing screening"],"openapi":"/openapi.json","docs":"/docs"}
+def tools():return {"principle":"Human UI, local AI and Jarvis call the same deterministic typed operations; UI state is never authoritative.","operations":["add","add_component","replace_component","sync_component","update","transform","mate_components","connect_interfaces","disconnect","delete","add_feature","delete_feature","add_load","add_constraint","set_requirement","add_bom_item","add_note","code_write","code_delete","code_rename"],"component_registry":{"schema":"/api/components/schema","stats":"/api/components/stats","search":"POST /api/components/search","select":"POST /api/components/select","import_pack":"POST /api/components/import-pack","reality_check":"/api/reality-check"},"analysis":["cantilever screening","reduced-order structural preview","modal screening","thermal screening","parameter optimization","manufacturing screening"],"openapi":"/openapi.json","docs":"/docs"}
 @app.get("/api/export/step/{object_id}")
 def export_step(object_id:str):
     try:
