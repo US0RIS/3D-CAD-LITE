@@ -1,5 +1,7 @@
 #define MyAppName "ForgeCAD"
-#define MyAppVersion "1.0.1"
+#ifndef MyAppVersion
+#define MyAppVersion "1.1.0-dev"
+#endif
 #define MyAppPublisher "ForgeCAD"
 #define MyAppExeName "ForgeCAD.exe"
 [Setup]
