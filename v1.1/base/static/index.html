@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ForgeCAD</title>
+<link rel="stylesheet" href="/static/styles.css">
+<script type="importmap">{"imports":{"three":"/static/vendor/three.module.js","three/addons/":"/static/vendor/addons/"}}</script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><div class="mark">F</div><div><strong>ForgeCAD</strong><small>AI engineering workbench</small></div></div>
+    <div class="projectTitle"><input id="projectName" value="ForgeCAD Project"><span id="saveState">LOCAL</span></div>
+    <div class="topActions"><button id="undoBtn" title="Undo">↶</button><button id="redoBtn" title="Redo">↷</button><button id="fitBtn">Fit</button><button id="exportBtn">Export STEP</button><div class="health" id="healthDot"></div></div>
+  </header>
+  <div class="designbar"><div class="sectionLabel">DESIGNS</div><div id="designTabs" class="designTabs"></div><button id="newBranchBtn" class="plus">＋ Branch</button><button id="compareBtn">Compare</button></div>
+  <main class="workspace">
+    <aside class="left rail">
+      <section class="panel aiPanel"><div class="panelHead"><span>FORGE AI</span><span id="ollamaState" class="badge">QWEN3:8B</span></div><div id="chatLog" class="chatLog"><div class="assistantMsg">Describe a part, change, load case, or component you want to add. Execution uses the same typed operations as the UI and Jarvis.</div></div><div class="chatInput"><textarea id="chatText" placeholder="Make the base plate 15% thicker…"></textarea><div><button id="askBtn">Ask</button><button id="applyBtn" class="primary">Plan + Apply</button></div></div></section>
+      <section class="panel treePanel"><div class="panelHead"><span>ASSEMBLY</span><button id="addPrimitiveBtn">＋</button></div><div id="objectTree" class="tree"></div></section>
+    </aside>
+    <section class="center">
+      <div id="viewport" class="viewport"><canvas id="gl"></canvas><div class="viewTools"><button data-view="iso">ISO</button><button data-view="front">FRONT</button><button data-view="top">TOP</button></div><div id="selectionBadge" class="selectionBadge">No selection</div></div>
+      <div class="dock">
+        <div class="dockTabs"><button class="active" data-dock="components">Components</button><button data-dock="analysis">Analysis</button><button data-dock="code">Code</button><button data-dock="history">History</button></div>
+        <div id="dockBody" class="dockBody"></div>
+      </div>
+    </section>
+    <aside class="right rail"><section class="panel inspector"><div class="panelHead"><span>INSPECTOR</span><span id="designStatus" class="badge">UNTESTED</span></div><div id="inspectorBody" class="inspectorBody"></div></section><section class="panel metrics"><div class="panelHead"><span>PROJECT METRICS</span></div><div id="metricsBody"></div></section><section class="panel trust"><div class="panelHead"><span>ENGINEERING TRUST</span></div><p>Built-in structural, modal, and thermal analyses are fast screening tools. Safety-critical decisions still require validated solver workflows and physical testing.</p></section></aside>
+  </main>
+  <footer class="statusbar"><span id="statusText">Starting ForgeCAD…</span><span id="modelState">LOCAL • QWEN3:8B</span></footer>
+</div>
+<div id="modal" class="modal hidden"><div class="modalCard"><div class="modalHead"><strong id="modalTitle">Dialog</strong><button id="modalClose">×</button></div><div id="modalBody"></div></div></div>
+<script type="module" src="/static/app.js"></script>
+</body></html>
