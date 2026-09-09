@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ForgeCAD — AI-native engineering workbench</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"}}</script>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark">F</div><div><b>ForgeCAD</b><small>Engineering Workbench</small></div></div>
+    <div class="project-pill"><input id="projectName" value="Untitled mechanism"/><span class="branch-icon">⑂</span><button class="link-btn" id="branchMenu"><span id="branchName">main</span> ▾</button></div>
+    <div class="top-actions">
+      <button class="icon-btn" id="undoBtn" title="Undo (⌘/Ctrl Z)">↶</button><button class="icon-btn" id="redoBtn" title="Redo">↷</button>
+      <div class="divider-v"></div>
+      <button class="button" id="importStepBtn">Import STEP</button><input id="stepFile" type="file" accept=".step,.stp" hidden>
+      <button class="button" id="exportProjectBtn">Project JSON</button>
+      <button class="button primary" id="simulateBtn"><span class="play">▶</span> Simulate</button>
+    </div>
+  </header>
+
+  <aside class="left-panel">
+    <div class="panel-head"><span>MODEL</span><button class="small-add" id="newPartBtn">＋</button></div>
+    <div id="newPartMenu" class="popover hidden">
+      <button data-addkind="box">□ Box</button><button data-addkind="cylinder">○ Cylinder</button><button data-addkind="sphere">● Sphere</button>
+      <button data-addkind="extrude">▱ Sketch + Extrude</button><button data-addkind="revolve">◒ Revolve profile</button>
+    </div>
+    <section class="tree-section"><div class="tree-title"><span>Parts</span><span id="partCount" class="count">0</span></div><div id="objectTree" class="tree"></div></section>
+    <section class="tree-section"><div class="tree-title"><span>Assembly</span><button class="mini-link" id="addJointBtn">+ Joint</button></div><div id="jointTree" class="tree"></div></section>
+    <section class="tree-section"><div class="tree-title"><span>Physics</span><button class="mini-link" id="addLoadBtn">+ Load</button></div><div id="physicsTree" class="tree"></div></section>
+    <section class="tree-section"><div class="tree-title"><span>Requirements</span><button class="mini-link" id="addReqBtn">+ Add</button></div><div id="requirements"></div></section>
+    <section class="tree-section grow"><div class="tree-title"><span>BOM</span><button class="mini-link" id="addBomBtn">+ Item</button></div><div id="bomTree" class="tree"></div></section>
+    <div class="left-metrics" id="projectMetrics">—</div>
+  </aside>
+
+  <main class="workspace">
+    <div id="viewport">
+      <div class="viewport-toolbar">
+        <button class="viewbtn active" data-mode="translate" title="Move (1)">Move</button><button class="viewbtn" data-mode="rotate" title="Rotate (2)">Rotate</button><button class="viewbtn" data-mode="scale" title="Scale (3)">Scale</button>
+        <span class="tool-sep"></span><button class="viewbtn" id="fitBtn">Fit</button><button class="viewbtn" data-view="iso">Iso</button><button class="viewbtn" data-view="top">Top</button><button class="viewbtn" data-view="front">Front</button><button class="viewbtn" data-view="right">Right</button>
+      </div>
+      <div class="selection-chip" id="selectionBadge">No selection</div>
+      <div class="axis-readout" id="coordReadout">X — · Y — · Z — mm</div>
+      <div id="fieldLegend" class="field-legend hidden"><div class="legend-head"><b id="fieldTitle">Result</b><button id="clearField">×</button></div><div class="gradient"></div><div class="legend-labels"><span id="fieldMin">0</span><span id="fieldMax">1</span></div></div>
+      <div class="view-cube" title="Z-up coordinate system"><span>Z</span><small>X&nbsp;&nbsp;Y</small></div>
+    </div>
+    <div class="bottom-dock">
+      <button class="dock-tab active" data-dock="simulations">SIMULATIONS</button><button class="dock-tab" data-dock="notebook">NOTEBOOK</button><button class="dock-tab" data-dock="branches">BRANCHES</button><button class="dock-tab" data-dock="system">SYSTEM</button>
+      <div class="dock-spacer"></div><span id="dockSummary">No analysis selected</span><button class="dock-close" id="dockToggle">⌃</button>
+    </div>
+    <div class="dock-content" id="dockContent">
+      <div class="dock-pane active" id="dock-simulations"><div id="simulationHistory" class="cards-row"></div></div>
+      <div class="dock-pane" id="dock-notebook"><div class="inline-form"><select id="noteType"><option>note</option><option>decision</option><option>experiment</option><option>calculation</option></select><input id="noteTitle" placeholder="Entry title"><input id="noteBody" placeholder="What was learned or decided?"><button class="button" id="addNoteBtn">Add entry</button></div><div id="notebookList" class="cards-row"></div></div>
+      <div class="dock-pane" id="dock-branches"><div class="inline-form"><input id="newBranchName" placeholder="branch-name"><button class="button" id="createBranchBtn">Create branch</button><select id="compareBranch"></select><button class="button" id="compareBranchBtn">Compare</button></div><div id="branchList" class="cards-row"></div><pre id="branchDiff" class="diff-view"></pre></div>
+      <div class="dock-pane" id="dock-system"><div id="systemInfo" class="system-grid"></div></div>
+    </div>
+  </main>
+
+  <aside class="right-panel">
+    <div class="tabs"><button class="tab active" data-tab="inspect">INSPECT</button><button class="tab" data-tab="analyze">ANALYZE</button><button class="tab" data-tab="agent">AGENT</button><button class="tab" data-tab="design">DESIGN</button></div>
+
+    <section class="tabpage active" id="tab-inspect">
+      <div id="emptyInspector" class="empty-state"><div class="empty-icon">◇</div><b>Select a part</b><p>Inspect exact geometry, materials, semantic identity, transforms, and features.</p></div>
+      <div id="partInspector" hidden>
+        <div class="inspector-head"><input id="objName" class="title-input"><button class="danger-icon" id="deleteBtn">⌫</button></div>
+        <label class="field"><span>Semantic role</span><input id="semanticRole" placeholder="motor_mount, chassis, shaft…"></label>
+        <div class="section-title">Geometry</div><div id="geometryFields" class="form-grid"></div>
+        <div id="profileFields"></div>
+        <div class="section-title">Transform</div><div class="xyz-grid" id="transformFields"></div>
+        <div class="section-title">Material</div><label class="field"><span>Engineering material</span><select id="materialSelect"></select></label><div id="materialFacts" class="facts"></div>
+        <div class="section-title row-title"><span>Features</span><div><button class="mini-link" id="holeBtn">+ Hole</button><button class="mini-link" id="pocketBtn">+ Pocket</button><button class="mini-link" id="edgeBtn">+ Edge</button></div></div><div id="featureList" class="feature-list"></div>
+        <div class="section-title">Manufacturing intent</div><label class="field"><span>Process</span><select id="processSelect"><option>prototype</option><option>fdm</option><option>sla</option><option>sls</option><option>cnc</option><option>laser</option></select></label>
+        <div class="button-row"><button class="button" id="stepBtn">STEP</button><button class="button" id="stlBtn">STL</button><button class="button" id="massBtn">Mass properties</button></div><div id="massResults" class="facts"></div>
+      </div>
+    </section>
+
+    <section class="tabpage" id="tab-analyze">
+      <div class="analysis-card"><div class="card-title">Structural screening</div><p>Fast analytical beam estimate before spending time on a finite-element solve.</p><div class="two-col"><label class="field"><span>Tip load N</span><input id="forceInput" type="number" value="100"></label><label class="field"><span>Length axis</span><select id="axisInput"><option>x</option><option>y</option><option>z</option></select></label></div><button class="button" id="beamBtn">Run screening</button><div id="beamResults" class="results"></div></div>
+      <div class="analysis-card"><div class="card-title">Linear static FEA <span class="preview-tag">PREVIEW</span></div><div class="two-col"><label class="field"><span>Total load N</span><input id="feaForce" type="number" value="100"></label><label class="field"><span>Mesh</span><select id="feaResolution"><option>8</option><option selected>12</option><option>16</option><option>20</option></select></label><label class="field"><span>Fixed face axis</span><select id="feaSupport"><option>x</option><option>y</option><option>z</option></select></label><label class="field"><span>Load direction</span><select id="feaDirection"><option>x</option><option>y</option><option selected>z</option></select></label></div><button class="button primary" id="feaBtn">Solve + visualize</button><div id="feaResults" class="results"></div></div>
+      <div class="analysis-card"><div class="card-title">Modal analysis <span class="preview-tag">PREVIEW</span></div><div class="two-col"><label class="field"><span>Fixed axis</span><select id="modalAxis"><option>x</option><option>y</option><option>z</option></select></label><label class="field"><span>Modes</span><input id="modalModes" type="number" min="1" max="10" value="6"></label></div><button class="button" id="modalBtn">Find natural frequencies</button><div id="modalResults" class="results"></div></div>
+      <div class="analysis-card"><div class="card-title">Thermal <span class="preview-tag">PREVIEW</span></div><div class="two-col"><label class="field"><span>Heat W</span><input id="thermalHeat" type="number" value="10"></label><label class="field"><span>Ambient °C</span><input id="thermalAmbient" type="number" value="22"></label><label class="field"><span>Convection h</span><input id="thermalH" type="number" value="8"></label><label class="field"><span>Mesh</span><select id="thermalResolution"><option>8</option><option selected>14</option><option>20</option></select></label></div><button class="button" id="thermalBtn">Solve + visualize</button><div id="thermalResults" class="results"></div></div>
+      <div class="analysis-card"><div class="card-title">Manufacturing review</div><div class="two-col"><label class="field"><span>Process</span><select id="mfgProcess"><option>fdm</option><option>sla</option><option>sls</option><option>cnc</option><option>laser</option></select></label></div><button class="button" id="mfgBtn">Review part</button><div id="mfgResults" class="results"></div></div>
+    </section>
+
+    <section class="tabpage" id="tab-agent">
+      <div class="agent-banner"><span class="agent-dot" id="agentDot"></span><div><b>Engineering agents</b><small id="agentStatus">checking local Ollama…</small></div></div>
+      <div class="role-grid"><button class="role active" data-role="designer">Designer<small>changes CAD</small></button><button class="role" data-role="analyst">Analyst<small>plans tests</small></button><button class="role" data-role="verifier">Verifier<small>tries to break it</small></button><button class="role" data-role="optimizer">Optimizer<small>finds variables</small></button></div>
+      <div id="agentLog" class="agent-log"><div class="message system">Agents operate on the canonical design model, not the screen. Designer commands are typed, logged, and undoable. Verifier is intentionally independent.</div></div>
+      <textarea id="agentInput" rows="5" placeholder="Example: Make a lightweight motor mount for a 60 mm motor, add four M5 mounting holes, and require factor of safety ≥ 2.0."></textarea>
+      <div class="composer-footer"><select id="modelSelect"><option>qwen3:8b</option></select><label class="check"><input id="executeAgent" type="checkbox" checked> execute designer changes</label><button class="button primary" id="agentRun">Run</button></div>
+      <button class="button verifier-run" id="workflowRun">Designer → independent verifier</button>
+      <details><summary>Agent/tool contract</summary><p class="fine">The GUI and agents use the same allow-listed JSON operations. External agents can use <code>/openapi.json</code>, <code>/docs</code>, and <code>/api/tools</code>.</p></details>
+    </section>
+
+    <section class="tabpage" id="tab-design">
+      <div class="analysis-card"><div class="card-title">Parameter optimizer</div><p>Search dimension space for lower mass while enforcing fast structural screening constraints. Re-run FEA on the chosen candidate.</p><div id="optimizerVars"></div><div class="two-col"><label class="field"><span>Max deflection mm</span><input id="optDeflection" type="number" value="0.5"></label><label class="field"><span>Min yield FoS</span><input id="optFos" type="number" value="2"></label></div><button class="button primary" id="optimizeBtn">Search design space</button><div id="optResults" class="results"></div></div>
+      <div class="analysis-card"><div class="card-title">Loads & constraints</div><div id="loadList" class="feature-list"></div><button class="button" id="addConstraintBtn">Add fixed constraint</button></div>
+      <div class="analysis-card"><div class="card-title">Assembly joint</div><div id="jointInspector" class="fine">Select a joint from the model tree, or create one.</div></div>
+    </section>
+  </aside>
+
+  <footer class="statusbar"><span id="statusText">Ready</span><span class="spacer"></span><span id="kernelState">CadQuery / OpenCascade</span><span>·</span><span id="solverState">preview solvers ready</span><span>·</span><span id="fps">— fps</span></footer>
+</div>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
