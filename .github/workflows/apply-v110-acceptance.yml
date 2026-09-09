@@ -1,0 +1,35 @@
+name: Apply ForgeCAD v1.1 acceptance integration
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/apply_acceptance_integration.py"
+      - ".github/workflows/apply-v110-acceptance.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v110-acceptance-integrated]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+      - name: Apply acceptance integration
+        run: python v1.1/apply_acceptance_integration.py v1.1/base
+      - name: Compile patched source
+        run: python -m compileall -q v1.1/base
+      - name: Commit integrated source
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/core.py v1.1/base/system_validation.py v1.1/base/curated_catalog.py v1.1/base/server.py
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Integrate acceptance assembly and collision screening [v110-acceptance-integrated]"
+          git fetch origin forgecad-v1.1.0-dev
+          git rebase origin/forgecad-v1.1.0-dev
+          git push origin HEAD:forgecad-v1.1.0-dev
