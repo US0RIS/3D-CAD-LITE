@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import components as legacy_components
+import curated_catalog
 
 SCHEMA_VERSION = 1
 DATA_DIR = Path(os.environ.get("FORGECAD_DATA_DIR") or (Path.home() / ".forgecad"))
@@ -145,6 +146,9 @@ def _load_builtin():
     _BUILTIN.clear()
     for legacy in legacy_components.REGISTRY:
         item=_deep_merge(_normalize_legacy(legacy),ENRICHMENTS.get(legacy["id"],{}));validate_component(item);_BUILTIN[item["id"]]=item
+    # Specific manufacturer-sourced parts override generic envelope choices only by ID, never silently.
+    for raw in curated_catalog.CATALOG:
+        item=_normalize_custom(raw,"manufacturer");validate_component(item);_BUILTIN[item["id"]]=item
 
 def _load_custom():
     _CUSTOM.clear()
@@ -250,13 +254,17 @@ def make_project_object(cid:str,*,name:str|None=None,transform:dict[str,Any]|Non
 def bom_item(cid,qty=1):
     c=component_by_id(cid);p=c.get("procurement",{});return {"component_ref":cid,"manufacturer":c.get("manufacturer"),"model":c.get("model"),"mpn":c.get("manufacturer_part_number"),"description":c.get("name"),"qty":int(qty),"unit_cost_usd":p.get("unit_cost_usd") or 0,"supplier":p.get("supplier"),"supplier_sku":p.get("sku"),"procurement_url":p.get("url"),"source_trust":c.get("trust_score",0)}
 
+def _refresh_compat_registry():
+    global REGISTRY
+    if "REGISTRY" in globals():REGISTRY[:]=list(_all_map().values())
+
 def import_components(payload,*,replace=True,source_kind="user_supplied"):
     items=payload.get("components",[]) if isinstance(payload,dict) and "components" in payload else (payload if isinstance(payload,list) else [payload]);added=[]
     for raw in items:
         item=_normalize_custom(raw,source_kind)
         if item["id"] in _BUILTIN and not replace:raise ValueError(f"Cannot replace built-in component {item['id']}")
         _CUSTOM[item["id"]]=item;added.append(deepcopy(item))
-    _persist_custom();return {"ok":True,"added":added,"total_registry":len(_all_map())}
+    _persist_custom();_refresh_compat_registry();return {"ok":True,"added":added,"total_registry":len(_all_map())}
 def _safe_asset_name(name):
     base=Path(name).name
     if not base or base in {".",".."}:raise ValueError("Invalid asset name")
@@ -267,7 +275,7 @@ def register_asset_bytes(cid,filename,data,*,role="geometry",source_kind="user_s
     if role=="geometry" and ext not in {".step",".stp",".iges",".igs",".stl",".obj",".3mf"}:raise ValueError(f"Unsupported geometry asset type: {ext}")
     folder=ASSET_DIR/_slug(cid);folder.mkdir(parents=True,exist_ok=True);out=folder/f"{digest[:16]}_{_safe_asset_name(filename)}";out.write_bytes(data);asset={"id":digest[:16],"role":role,"filename":filename,"path":str(out),"sha256":digest,"bytes":len(data),"format":ext.lstrip("."),"source":_source(source_kind,source_url)};component.setdefault("geometry",{}).setdefault("assets",[]).append(asset)
     if role=="geometry" and ext in {".step",".stp"}:component["geometry"].update({"preferred":"step_asset","fidelity":"official_step" if source_kind=="manufacturer" else "verified_step","trust":source_kind})
-    _CUSTOM[cid]=component;_persist_custom();return {"ok":True,"component":component,"asset":asset}
+    _CUSTOM[cid]=component;_persist_custom();_refresh_compat_registry();return {"ok":True,"component":component,"asset":asset}
 def import_catalog_pack_bytes(filename,data):
     if len(data)>300*1024*1024:raise ValueError("Catalog pack exceeds 300 MB")
     if filename.lower().endswith(".json"):return import_components(json.loads(data.decode("utf-8")))
@@ -290,7 +298,7 @@ def import_catalog_pack_bytes(filename,data):
         return {**result,"assets_imported":len(assets)}
 def delete_custom_component(cid):
     if cid not in _CUSTOM:raise KeyError(cid)
-    del _CUSTOM[cid];_persist_custom();return {"ok":True,"id":cid,"total_registry":len(_all_map())}
+    del _CUSTOM[cid];_persist_custom();_refresh_compat_registry();return {"ok":True,"id":cid,"total_registry":len(_all_map())}
 def provider_status():return {"providers":[],"offline_registry":registry_stats(),"note":"v1.1 uses deterministic local component data and accepts manufacturer/distributor catalog packs. Live supplier adapters remain an optional boundary."}
 def search_provider(provider,query,limit=25,import_results=False):raise RuntimeError(f"Live supplier provider {provider!r} is not configured")
 

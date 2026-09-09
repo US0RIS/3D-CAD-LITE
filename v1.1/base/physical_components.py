@@ -58,6 +58,10 @@ def _pcb_parts(c):
     x,y,z=[float(v) for v in c["dimensions_mm"]];board_h=min(1.6,max(.8,z*.25));board,_=_box(x,y,board_h,"#167a3b",radius=min(3,min(x,y)*.06));chip,_=_box(min(16,x*.28),min(16,y*.35),max(1,min(2,z*.2)),"#25282b",(0,0,board_h/2+1));header,_=_box(min(x*.65,35),min(5,y*.18),max(2,min(7,z*.6)),"#17191b",(0,y*.38,max(1,z*.20)));conn,_=_box(min(10,x*.22),min(9,y*.28),max(3,min(8,z*.7)),"#b6bcc1",(x*.42,0,max(1,z*.24)));return [(board,"#167a3b"),(chip,"#25282b"),(header,"#17191b"),(conn,"#b6bcc1")]
 def _battery_parts(c):
     x,y,z=[float(v) for v in c["dimensions_mm"]];body,_=_box(x,y,z,"#45484d",radius=min(4,min(x,y,z)*.12));lead1=_cyl(1.2,min(15,x*.2),"#d43c35",(x/2+min(15,x*.2)/2,2,0),"x")[0];lead2=_cyl(1.2,min(15,x*.2),"#25282b",(x/2+min(15,x*.2)/2,-2,0),"x")[0];return [(body,"#45484d"),(lead1,"#d43c35"),(lead2,"#25282b")]
+def _power_supply_parts(c):
+    x,y,z=[float(v) for v in c["dimensions_mm"]];base,_=_box(x,y,1.2,"#aab0b4",(0,0,-z/2+.6),1);side1,_=_box(x,1.2,z,"#9ba1a6",(0,-y/2+.6,0),.5);side2,_=_box(x,1.2,z,"#9ba1a6",(0,y/2-.6,0),.5);end,_=_box(1.2,y,z,"#9ba1a6",(-x/2+.6,0,0),.5);top,_=_box(x*.72,y*.86,1.0,"#b4b9bd",(x*.08,0,z/2-.5),1);terminal,_=_box(12,min(55,y*.55),12,"#303337",(x/2-8,-y*.15,z/2-6),1);vents=[]
+    for i in range(8):vents.append(_box(x*.34,2,.7,"#596066",(-x*.12,-y*.31+i*y*.075,z/2+.15),.2)[0])
+    return [(base,"#aab0b4"),(side1,"#9ba1a6"),(side2,"#9ba1a6"),(end,"#9ba1a6"),(top,"#b4b9bd"),(terminal,"#303337"),(cq.Compound.makeCompound(vents),"#596066")]
 
 def component_definition(obj):
     snap=obj.get("component_snapshot")
@@ -80,7 +84,7 @@ def component_parts(obj):
         except Exception:pass
     profile=str(c.get("geometry",{}).get("profile") or c.get("category") or "box")
     if profile=="raspberry_pi_5":return _pi5_parts()
-    dispatch={"bearing":_bearing_parts,"stepper_motor":_stepper_parts,"servo":_servo_parts,"solenoid":_solenoid_parts,"fan":_fan_parts,"fastener":_fastener_parts,"linear_motion":_rail_parts,"compute":_pcb_parts,"microcontroller":_pcb_parts,"sensor":_pcb_parts,"power":_pcb_parts,"battery":_battery_parts};fn=dispatch.get(profile) or dispatch.get(str(c.get("category")))
+    dispatch={"bearing":_bearing_parts,"stepper_motor":_stepper_parts,"servo":_servo_parts,"solenoid":_solenoid_parts,"fan":_fan_parts,"fastener":_fastener_parts,"linear_motion":_rail_parts,"compute":_pcb_parts,"microcontroller":_pcb_parts,"sensor":_pcb_parts,"power":_pcb_parts,"battery":_battery_parts,"power_supply":_power_supply_parts};fn=dispatch.get(profile) or dispatch.get(str(c.get("category")))
     if fn:
         try:return fn(c)
         except Exception:pass
