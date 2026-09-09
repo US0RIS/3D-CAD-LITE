@@ -21,10 +21,20 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $expectedPartHashes = @(
+            "d987501021a90c5d185f3efb22ccf02c82c3a43bb68d610939b4c94f05c26950",
+            "730fe01493f6d5ddb91ae28acfee07af428180d4b35c96c6e304c3738efb6322",
+            "153d06c4e75f3bd1462f9d2af126d27ac0a82e2ed3bb96ccfb6eb16b87c85643",
+            "b83135086ff205db151c6d5d932abed584c51e25ee3a1c1c647d72484e04c5e3"
+          )
           $parts = 0..3 | ForEach-Object {
             $path = Join-Path $env:GITHUB_WORKSPACE ("v1/release-b64/part{0:D2}.txt" -f $_)
             if (-not (Test-Path $path)) { throw "Missing release source part: $path" }
-            (Get-Content $path -Raw).Trim()
+            $text = (Get-Content $path -Raw).Trim()
+            $sha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text))).ToLowerInvariant()
+            Write-Host ("part{0:D2}: chars={1} sha256={2}" -f $_, $text.Length, $sha)
+            if ($sha -ne $expectedPartHashes[$_]) { throw ("Release source part{0:D2} SHA256 mismatch: {1}" -f $_, $sha) }
+            $text
           }
           $b64 = $parts -join ""
           $bytes = [Convert]::FromBase64String($b64)
