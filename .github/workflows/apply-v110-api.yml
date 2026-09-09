@@ -1,0 +1,34 @@
+name: Apply ForgeCAD v1.1 API and agent integration
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - "v1.1/APPLY_API"
+      - "v1.1/integrate_v110_api.py"
+      - ".github/workflows/apply-v110-api.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[v110-api]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+      - name: Apply API and agent patch
+        run: python v1.1/integrate_v110_api.py v1.1/base
+      - name: Compile patched source
+        run: python -m compileall -q v1.1/base
+      - name: Commit integrated source
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/server.py v1.1/base/agents.py
+          git commit -m "Integrate component registry with API and agents [v110-api]"
+          git pull --rebase origin forgecad-v1.1.0-dev
+          git push origin HEAD:forgecad-v1.1.0-dev
