@@ -1,0 +1,100 @@
+name: Build ForgeCAD v1 macOS installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - forgecad-release-package-final2
+    paths:
+      - "v1/release-b64/**"
+      - ".github/workflows/macos-v1-build.yml"
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          test "$(uname -m)" = "arm64"
+
+      - name: Reconstruct and verify release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+          root = Path.cwd()
+          parts = []
+          for i in range(4):
+              p = root / 'v1' / 'release-b64' / f'part{i:02d}.txt'
+              if not p.exists():
+                  raise SystemExit(f'Missing release source part: {p}')
+              parts.append(p.read_text().strip())
+          raw = base64.b64decode(''.join(parts), validate=True)
+          if len(raw) != 47969:
+              raise SystemExit(f'Release snapshot length mismatch: {len(raw)}')
+          sha = hashlib.sha256(raw).hexdigest()
+          expected = '19c4c3bf864ca487088b8efc45dbb49b2b0ab1b91179f4cd133e55c937dd269b'
+          if sha != expected:
+              raise SystemExit(f'Release snapshot SHA256 mismatch: {sha}')
+          (root / 'ForgeCAD-v1-source.zip').write_bytes(raw)
+          print('Verified release source:', sha)
+          PY
+          rm -rf v1-build-src
+          mkdir v1-build-src
+          unzip -q ForgeCAD-v1-source.zip -d v1-build-src
+          test -f v1-build-src/server.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build macOS application and DMG
+        shell: bash
+        working-directory: v1-build-src
+        run: bash macos/build.sh
+
+      - name: Mount DMG and smoke-test packaged application
+        shell: bash
+        working-directory: v1-build-src
+        run: |
+          set -euo pipefail
+          MOUNT="$RUNNER_TEMP/ForgeCAD-DMG"
+          mkdir -p "$MOUNT"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" dist/ForgeCAD-v1-macOS-arm64.dmg
+          trap 'hdiutil detach "$MOUNT" || true' EXIT
+          "$MOUNT/ForgeCAD.app/Contents/MacOS/ForgeCAD" --self-test
+          hdiutil detach "$MOUNT"
+          trap - EXIT
+
+      - name: Show release hashes
+        shell: bash
+        working-directory: v1-build-src
+        run: |
+          shasum -a 256 dist/ForgeCAD-v1-macOS-arm64.dmg
+          ls -lh dist/ForgeCAD-v1-macOS-arm64.dmg
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForgeCAD-v1-macOS-arm64-DMG
+          path: v1-build-src/dist/ForgeCAD-v1-macOS-arm64.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload macOS app ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ForgeCAD-v1-macOS-arm64-App
+          path: v1-build-src/dist/ForgeCAD-v1-macOS-arm64-app.zip
+          if-no-files-found: error
+          retention-days: 30
