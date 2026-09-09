@@ -1,0 +1,60 @@
+name: Publish ForgeCAD macOS Release Asset
+
+on:
+  push:
+    branches:
+      - forgecad-release-package-final2
+    paths:
+      - ".github/workflows/publish-forgecad-macos-release.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download verified macOS DMG artifact from successful native build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release-artifact
+          gh run download 34401639437 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name ForgeCAD-v1-macOS-arm64-DMG \
+            --dir release-artifact
+          find release-artifact -maxdepth 2 -type f -print
+
+      - name: Verify DMG hash
+        run: |
+          DMG=$(find release-artifact -type f -name '*.dmg' | head -n 1)
+          test -n "$DMG"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          echo "File: $DMG"
+          sha256sum "$DMG"
+          echo "fcd6417a8da9a07168d24ebf74953aadf81c8985280debd0b43470268db1708b  $DMG" | sha256sum -c -
+
+      - name: Publish stable GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="forgecad-v1.0.0"
+          ASSET_NAME="ForgeCAD-v1-macOS-arm64.dmg"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG#$ASSET_NAME" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$DMG#$ASSET_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "ForgeCAD v1.0.0" \
+              --notes "ForgeCAD v1 native macOS Apple Silicon release. The DMG was built on an Apple Silicon GitHub runner, mounted, and the packaged ForgeCAD.app passed its self-test. SHA-256: fcd6417a8da9a07168d24ebf74953aadf81c8985280debd0b43470268db1708b"
+          fi
+
+      - name: Show release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view forgecad-v1.0.0 --repo "$GITHUB_REPOSITORY" --json url,assets
