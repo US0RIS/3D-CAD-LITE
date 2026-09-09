@@ -21,9 +21,15 @@ jobs:
       - name: Expand frozen v1 source
         shell: pwsh
         run: |
+          $src = Join-Path $env:GITHUB_WORKSPACE "v1/forgecad-v1-source.zip"
           $dst = Join-Path $env:GITHUB_WORKSPACE "v1-build-src"
           if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-          Expand-Archive -Path "v1/forgecad-v1-source.zip" -DestinationPath $dst -Force
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Write-Host "Snapshot bytes: $((Get-Item $src).Length)"
+          Write-Host "Snapshot SHA256: $((Get-FileHash $src -Algorithm SHA256).Hash)"
+          & tar.exe -xf $src -C $dst
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract the frozen ForgeCAD v1 source snapshot." }
+          if (-not (Test-Path (Join-Path $dst "server.py"))) { throw "Snapshot extraction did not produce server.py." }
           Copy-Item "v1/overrides/windows-build.ps1" (Join-Path $dst "windows/build.ps1") -Force
           (Get-Content (Join-Path $dst "README.md") -Raw).Replace("ForgeCAD v0.4 includes an authenticated loopback engineering bridge", "ForgeCAD v1 includes an authenticated loopback engineering bridge") | Set-Content (Join-Path $dst "README.md") -Encoding UTF8
           (Get-Content (Join-Path $dst "JARVIS_INTEGRATION.md") -Raw).Replace("ForgeCAD v0.4 can be operated from Jarvis", "ForgeCAD v1 can be operated from Jarvis") | Set-Content (Join-Path $dst "JARVIS_INTEGRATION.md") -Encoding UTF8
