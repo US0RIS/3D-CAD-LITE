@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+projects/default.forge.json
+projects/branches/*.forge.json
+projects/imports/*
+projects/exports/*
+!projects/branches/.gitkeep
+!projects/imports/.gitkeep
+!projects/exports/.gitkeep
+ui-smoke.png
