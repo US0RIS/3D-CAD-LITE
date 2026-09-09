@@ -18,9 +18,12 @@ def _box(x:float,y:float,z:float,color:str="#888888",center=(0,0,0),radius:float
 
 def _cyl(d:float,h:float,color:str="#888888",center=(0,0,0),axis="z"):
     cx,cy,cz=center
-    if axis=="x":sh=cq.Workplane("YZ").circle(d/2).extrude(h,both=True).val().translate((cx,cy,cz))
-    elif axis=="y":sh=cq.Workplane("XZ").circle(d/2).extrude(h,both=True).val().translate((cx,cy,cz))
-    else:sh=cq.Workplane("XY").circle(d/2).extrude(h,both=True).val().translate((cx,cy,cz))
+    # CadQuery ``both=True`` extrudes the requested distance in both directions.
+    # ``h`` is the engineering full length, so use h/2 on each side.
+    half=float(h)/2.0
+    if axis=="x":sh=cq.Workplane("YZ").circle(d/2).extrude(half,both=True).val().translate((cx,cy,cz))
+    elif axis=="y":sh=cq.Workplane("XZ").circle(d/2).extrude(half,both=True).val().translate((cx,cy,cz))
+    else:sh=cq.Workplane("XY").circle(d/2).extrude(half,both=True).val().translate((cx,cy,cz))
     return sh,color
 
 def _cut_holes(shape,points,diameter,depth,offset_z):
@@ -39,7 +42,7 @@ def _pi5_parts():
     return parts
 
 def _bearing_parts(c):
-    s=c.get("specs",{});d=float(s.get("outer_diameter_mm") or c.get("dimensions_mm",[22])[0]);b=float(s.get("bore_mm") or max(3,d*.35));w=float(s.get("width_mm") or c.get("dimensions_mm",[0,0,7])[2]);outer=cq.Workplane("XY").circle(d/2).circle(b/2).extrude(w,both=True).val();shield=cq.Workplane("XY").circle(d*.44).circle(b*.54).extrude(w*.82,both=True).val();return [(outer,"#aeb4ba"),(shield,"#6e747b")]
+    s=c.get("specs",{});d=float(s.get("outer_diameter_mm") or c.get("dimensions_mm",[22])[0]);b=float(s.get("bore_mm") or max(3,d*.35));w=float(s.get("width_mm") or c.get("dimensions_mm",[0,0,7])[2]);outer=cq.Workplane("XY").circle(d/2).circle(b/2).extrude(w/2,both=True).val();shield=cq.Workplane("XY").circle(d*.44).circle(b*.54).extrude(w*.41,both=True).val();return [(outer,"#aeb4ba"),(shield,"#6e747b")]
 def _stepper_parts(c):
     x,y,z=[float(v) for v in c["dimensions_mm"]];face=min(x,y);body,_=_box(x*.96,y*.96,z,"#25282c",radius=2);front,_=_box(x,y,3,"#9ba2a8",(0,0,z/2-1.5),1.5);rear,_=_box(x*.94,y*.94,2,"#6f747a",(0,0,-z/2+1),1);pilot=_cyl(max(16,face*.52),2,"#aab0b5",(0,0,z/2+1))[0];shaft_d=5 if face<=42 else 6.35;shaft=_cyl(shaft_d,20,"#c4c9cd",(0,0,z/2+10))[0];spacing={20:15.4,28:23,35:26,42:31,57:47.14}.get(round(face),face*.73);pts=[(-spacing/2,-spacing/2),(spacing/2,-spacing/2),(spacing/2,spacing/2),(-spacing/2,spacing/2)];front=_cut_holes(front,pts,3 if face<=42 else 5,5,z/2-3);return [(body,"#25282c"),(front,"#9ba2a8"),(rear,"#6f747a"),(pilot,"#aab0b5"),(shaft,"#c4c9cd")]
 def _servo_parts(c):
