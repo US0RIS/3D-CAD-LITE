@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/v110-windows-rc.yml"
       - "v1.1/BUILD_WINDOWS_RC"
+      - "v1.1/base/RELEASE_TRIGGER"
 
 jobs:
   build:
@@ -35,6 +36,8 @@ jobs:
         shell: pwsh
         working-directory: v1.1/base
         run: |
+          $Version = python -c "import core; print(core.APP_VERSION)"
+          if ($Version.Trim() -ne "1.1.0") { throw "Expected ForgeCAD 1.1.0, got $Version" }
           if (-not (Test-Path "dist/installer/ForgeCAD-Setup.exe")) { throw "Installer missing" }
           Get-FileHash "dist/installer/ForgeCAD-Setup.exe" -Algorithm SHA256
           Get-Item "dist/installer/ForgeCAD-Setup.exe" | Select-Object Name,Length
