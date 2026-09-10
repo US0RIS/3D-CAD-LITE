@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/v110-macos-rc.yml"
       - "v1.1/BUILD_MACOS_RC"
+      - "v1.1/base/RELEASE_TRIGGER"
 
 jobs:
   build:
@@ -32,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(python -c 'import core; print(core.APP_VERSION)')"
+          test "$VERSION" = "1.1.0"
           test -f "dist/ForgeCAD-v${VERSION}-macOS-arm64.dmg"
           test -f "dist/ForgeCAD-v${VERSION}-macOS-arm64-app.zip"
           shasum -a 256 "dist/ForgeCAD-v${VERSION}-macOS-arm64.dmg" "dist/ForgeCAD-v${VERSION}-macOS-arm64-app.zip"
