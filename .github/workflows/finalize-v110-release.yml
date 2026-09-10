@@ -1,0 +1,105 @@
+name: Finalize ForgeCAD v1.1.0
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - ".github/workflows/finalize-v110-release.yml"
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_BRANCH: forgecad-release-v1.1.0
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[v110-release-finalized]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+          fetch-depth: 0
+
+      - name: Finalize stable version and packaging metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('v1.1/base')
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one occurrence of {old!r}, found {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(root/'core.py', 'APP_VERSION = "1.1.0-dev"', 'APP_VERSION = "1.1.0"')
+          replace_once(root/'desktop.py', 'BUILD_ID=f"forgecad-v1.0.0-{sys.platform}-{os.uname().machine if hasattr(os,\'uname\') else \'x64\'}"', 'BUILD_ID=f"forgecad-v1.1.0-{sys.platform}-{os.uname().machine if hasattr(os,\'uname\') else \'x64\'}"')
+          replace_once(root/'windows'/'installer.iss', '#define MyAppVersion "1.1.0-dev"', '#define MyAppVersion "1.1.0"')
+
+          spec = root/'forgecad.spec'
+          text = spec.read_text(encoding='utf-8')
+          if 'first_party = [' not in text:
+              needle = "hidden += ['multipart','python_multipart']\n"
+              if text.count(needle) != 1:
+                  raise SystemExit('forgecad.spec: hidden-import insertion point not found exactly once')
+              first_party = "first_party = ['agents','analysis','core','components','component_registry','component_importers','physical_components','system_validation','project_bundle','acceptance_design','assembly_validation','mounting','software','jarvis_bridge']\nhidden += first_party\n"
+              text = text.replace(needle, needle + first_party, 1)
+          text = text.replace("'CFBundleShortVersionString':'1.0.1','CFBundleVersion':'101'", "'CFBundleShortVersionString':'1.1.0','CFBundleVersion':'110'", 1)
+          if "'CFBundleShortVersionString':'1.1.0','CFBundleVersion':'110'" not in text:
+              raise SystemExit('forgecad.spec: stable bundle version metadata was not applied')
+          spec.write_text(text, encoding='utf-8')
+
+          release_test = root/'release_test.py'
+          text = release_test.read_text(encoding='utf-8')
+          marker = "print('ForgeCAD release preflight: PASS')"
+          if 'Stable-release version contract' not in text:
+              checks = '''# Stable-release version contract: prevent installer/application metadata drift.\ncore_text=(R/'core.py').read_text(encoding='utf-8')\nif 'APP_VERSION = "1.1.0"' not in core_text:raise SystemExit('core.APP_VERSION is not stable 1.1.0')\ndesktop_text=(R/'desktop.py').read_text(encoding='utf-8')\nif 'forgecad-v1.1.0-' not in desktop_text:raise SystemExit('desktop build ID is not v1.1.0')\nspec_text=(R/'forgecad.spec').read_text(encoding='utf-8')\nfor token in ["'CFBundleShortVersionString':'1.1.0'", "'CFBundleVersion':'110'", "'agents'"]:\n    if token not in spec_text:raise SystemExit('forgecad.spec release contract missing '+token)\ninstaller_text=(R/'windows'/'installer.iss').read_text(encoding='utf-8')\nif '#define MyAppVersion "1.1.0"' not in installer_text:raise SystemExit('Windows installer fallback version is not 1.1.0')\n'''
+              if text.count(marker) != 1:
+                  raise SystemExit('release_test.py: PASS marker not found exactly once')
+              text = text.replace(marker, checks + marker, 1)
+              release_test.write_text(text, encoding='utf-8')
+
+          (Path('v1.1')/'BUILD_WINDOWS_RC').write_text('ForgeCAD v1.1.0 final Windows release build\n', encoding='utf-8')
+          (Path('v1.1')/'BUILD_MACOS_RC').write_text('ForgeCAD v1.1.0 final macOS release build\n', encoding='utf-8')
+          PY
+
+      - name: Validate release contract before commit
+        working-directory: v1.1/base
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q .
+          python release_test.py
+          grep -q 'APP_VERSION = "1.1.0"' core.py
+          grep -q 'forgecad-v1.1.0-' desktop.py
+          grep -q "'CFBundleShortVersionString':'1.1.0'" forgecad.spec
+          grep -q "'agents'" forgecad.spec
+          grep -q '#define MyAppVersion "1.1.0"' windows/installer.iss
+          if grep -n '1.1.0-dev' core.py desktop.py forgecad.spec windows/installer.iss; then
+            echo 'Development version marker remains in release-critical files' >&2
+            exit 1
+          fi
+
+      - name: Commit stable v1.1.0 and trigger native qualification builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/core.py v1.1/base/desktop.py v1.1/base/forgecad.spec v1.1/base/release_test.py v1.1/base/windows/installer.iss v1.1/BUILD_WINDOWS_RC v1.1/BUILD_MACOS_RC
+          if git diff --cached --quiet; then
+            echo 'Release files are already finalized.'
+            exit 0
+          fi
+          git commit -m "Finalize ForgeCAD v1.1.0 release [v110-release-finalized]"
+          git fetch origin forgecad-v1.1.0-dev
+          git rebase origin/forgecad-v1.1.0-dev
+          git push origin HEAD:forgecad-v1.1.0-dev
+          git push origin HEAD:refs/heads/${RELEASE_BRANCH}
