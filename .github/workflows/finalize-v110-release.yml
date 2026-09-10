@@ -76,6 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m compileall -q .
+          python prepare_frontend.py
           python release_test.py
           grep -q 'APP_VERSION = "1.1.0"' core.py
           grep -q 'forgecad-v1.1.0-' desktop.py
