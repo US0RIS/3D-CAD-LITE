@@ -11,7 +11,7 @@ import component_registry
 import physical_components
 import system_validation
 
-APP_VERSION = "1.1.0-dev"
+APP_VERSION = "1.1.0"
 DATA_DIR = Path(os.environ.get("FORGECAD_DATA_DIR") or (Path.home()/".forgecad"))
 PROJECTS = DATA_DIR / "projects"
 EXPORTS = DATA_DIR / "exports"
