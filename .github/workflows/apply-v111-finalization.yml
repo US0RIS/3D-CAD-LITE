@@ -1,0 +1,118 @@
+name: Finalize ForgeCAD v1.1.1 release state
+
+on:
+  push:
+    branches: [forgecad-v1.1.1-dev]
+    paths:
+      - ".github/workflows/apply-v111-finalization.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.1-dev
+          fetch-depth: 0
+      - name: Apply stable 1.1.1 metadata and release gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def once(path, old, new):
+              p=Path(path); s=p.read_text(encoding='utf-8')
+              n=s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{path}: expected one occurrence of {old!r}, found {n}')
+              p.write_text(s.replace(old,new,1),encoding='utf-8')
+
+          once('v1.1/base/core.py','APP_VERSION = "1.1.0"','APP_VERSION = "1.1.1"')
+          once('v1.1/base/desktop.py','forgecad-v1.1.0-','forgecad-v1.1.1-')
+          once('v1.1/base/acceptance_design.py','"version":"1.1.0-dev"','"version":"1.1.1"')
+          once('v1.1/base/forgecad.spec',"'CFBundleShortVersionString':'1.1.0'","'CFBundleShortVersionString':'1.1.1'")
+          once('v1.1/base/forgecad.spec',"'CFBundleVersion':'110'","'CFBundleVersion':'111'")
+          once('v1.1/base/windows/installer.iss','#define MyAppVersion "1.1.0"','#define MyAppVersion "1.1.1"')
+
+          # Keep the release-preflight contract locked to the stable version.
+          p=Path('v1.1/base/release_test.py'); s=p.read_text(encoding='utf-8')
+          s=s.replace('1.1.0','1.1.1').replace("'CFBundleVersion':'110'","'CFBundleVersion':'111'")
+          p.write_text(s,encoding='utf-8')
+
+          # Run exact-part policy in every native build, not only a specialist CI job.
+          for path in ['v1.1/base/macos/build.sh','v1.1/base/windows/build.ps1']:
+              p=Path(path); s=p.read_text(encoding='utf-8')
+              marker='python component_fidelity_test.py\n'
+              if 'python component_agent_policy_test.py' not in s:
+                  if s.count(marker)!=1: raise SystemExit(f'{path}: component fidelity marker missing')
+                  s=s.replace(marker,marker+'python component_agent_policy_test.py\n',1)
+              p.write_text(s,encoding='utf-8')
+
+          p=Path('.github/workflows/v111-ci.yml'); s=p.read_text(encoding='utf-8')
+          if 'python component_agent_policy_test.py' not in s:
+              s=s.replace('          python component_fidelity_test.py\n','          python component_fidelity_test.py\n          python component_agent_policy_test.py\n',1)
+          p.write_text(s,encoding='utf-8')
+
+          # Make the release-candidate CAD-asset checks at least as strict as the
+          # component-fidelity qualification they replace.
+          p=Path('.github/workflows/v111-macos-rc.yml'); s=p.read_text(encoding='utf-8')
+          s=s.replace("-size +100k | grep -q .\n          find dist/ForgeCAD.app -type f -name 'raspberry_pi_4_model_b_parametric.step' -size +100k", "-size +1000k | grep -q .\n          find dist/ForgeCAD.app -type f -name 'raspberry_pi_4_model_b_parametric.step' -size +100k",1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('.github/workflows/v111-windows-rc.yml'); s=p.read_text(encoding='utf-8')
+          s=s.replace('$Pi5.Length -lt 100000)', '$Pi5.Length -lt 1000000)',1)
+          p.write_text(s,encoding='utf-8')
+
+          p=Path('v1.1/base/README.md'); s=p.read_text(encoding='utf-8')
+          if s.startswith('# ForgeCAD v1.1\n'):
+              s=s.replace('# ForgeCAD v1.1\n','# ForgeCAD v1.1.1\n',1)
+          s=s.replace('`v110-windows-rc.yml`','`v111-windows-rc.yml`').replace('`v110-macos-rc.yml`','`v111-macos-rc.yml`')
+          intro='ForgeCAD is a local-first, AI-native mechanical/electromechanical engineering workbench.'
+          note='\n\n**v1.1.1 production-fidelity update.** This maintenance release makes real-part fidelity explicit: authoritative manufacturer CAD is preferred for engineering operations, proxy geometry is labeled and blocked from physical verification, and release qualification now requires the same complete regression/readiness suite on Linux, native Apple Silicon macOS, and Windows x64.\n'
+          if 'v1.1.1 production-fidelity update' not in s:
+              pos=s.find('\n',s.find(intro))
+              if pos!=-1:s=s[:pos+1]+note+s[pos+1:]
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Preflight finalized source tree
+        shell: bash
+        working-directory: v1.1/base
+        run: |
+          set -euo pipefail
+          python -m compileall -q .
+          python release_test.py
+          python - <<'PY'
+          import ast,re
+          from pathlib import Path
+          core=Path('core.py').read_text(); assert 'APP_VERSION = "1.1.1"' in core
+          spec=Path('forgecad.spec').read_text(); assert "'CFBundleShortVersionString':'1.1.1'" in spec and "'CFBundleVersion':'111'" in spec
+          assert 'python component_agent_policy_test.py' in Path('macos/build.sh').read_text()
+          assert 'python component_agent_policy_test.py' in Path('windows/build.ps1').read_text()
+          print('ForgeCAD v1.1.1 finalization preflight: PASS')
+          PY
+      - name: Remove superseded one-shot v1.1.1 migration workflows
+        shell: bash
+        run: |
+          rm -f \
+            .github/workflows/apply-v111-geometry-separation.yml \
+            .github/workflows/apply-v111-readiness-integration.yml \
+            .github/workflows/apply-v111-rpi-visual-fidelity.yml \
+            .github/workflows/apply-v111-ui-fidelity.yml \
+            .github/workflows/v111-agent-policy.yml \
+            .github/workflows/v111-component-fidelity.yml \
+            .github/workflows/apply-v111-finalization.yml
+      - name: Commit finalized v1.1.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Finalize ForgeCAD v1.1.1"
+          git fetch origin forgecad-v1.1.1-dev
+          git rebase origin/forgecad-v1.1.1-dev
+          git push origin HEAD:forgecad-v1.1.1-dev
