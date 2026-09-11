@@ -7,12 +7,14 @@ if (-not $VersionMatch.Success) { throw "Unable to determine ForgeCAD version fr
 $Version = $VersionMatch.Groups[1].Value
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt -r windows/requirements-build.txt "httpx>=0.28,<1"
+python prepare_component_assets.py
 python prepare_frontend.py
 python -m compileall -q .
 python smoke_test.py
 python api_test.py
 python acceptance_test.py
 python acceptance_api_test.py
+python component_fidelity_test.py
 python v1_test.py
 python release_test.py
 python -m PyInstaller --noconfirm --clean forgecad.spec
