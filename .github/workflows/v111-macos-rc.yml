@@ -44,13 +44,14 @@ jobs:
           test -f "dist/ForgeCAD-v${VERSION}-macOS-arm64-app.zip"
           PLIST="dist/ForgeCAD.app/Contents/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.1.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "111"
           shasum -a 256 "dist/ForgeCAD-v${VERSION}-macOS-arm64.dmg" "dist/ForgeCAD-v${VERSION}-macOS-arm64-app.zip"
       - name: Verify bundled authoritative component assets
         shell: bash
         working-directory: v1.1/base
         run: |
           set -euo pipefail
-          find dist/ForgeCAD.app -type f -name 'raspberry_pi_5_official.step' -size +100k | grep -q .
+          find dist/ForgeCAD.app -type f -name 'raspberry_pi_5_official.step' -size +1000k | grep -q .
           find dist/ForgeCAD.app -type f -name 'raspberry_pi_4_model_b_parametric.step' -size +100k | grep -q .
       - uses: actions/upload-artifact@v4
         with:
