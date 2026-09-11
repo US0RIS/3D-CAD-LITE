@@ -1,0 +1,62 @@
+name: ForgeCAD v1.1.1 qualification CI
+
+on:
+  push:
+    branches: [forgecad-v1.1.1-dev]
+    paths:
+      - "v1.1/base/**"
+      - ".github/workflows/v111-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forgecad-v1.1.1-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v1.1/base/requirements.txt
+      - name: Install runtime and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r v1.1/base/requirements.txt scipy numpy "httpx>=0.28,<1"
+      - name: Prepare authoritative component CAD and frontend
+        working-directory: v1.1/base
+        run: |
+          python prepare_component_assets.py
+          python prepare_frontend.py
+      - name: Compile Python source
+        working-directory: v1.1/base
+        run: python -m compileall -q .
+      - name: Run complete v1.1.1 regression and acceptance suite
+        working-directory: v1.1/base
+        env:
+          PYTHONPATH: .
+        run: |
+          python smoke_test.py
+          python api_test.py
+          python acceptance_test.py
+          python acceptance_api_test.py
+          python component_fidelity_test.py
+          python production_readiness_test.py
+          python production_readiness_api_test.py
+          python v1_test.py
+          python release_test.py
+      - name: Verify release version
+        working-directory: v1.1/base
+        run: |
+          python - <<'PY'
+          import core
+          assert core.APP_VERSION == "1.1.1", core.APP_VERSION
+          print("ForgeCAD", core.APP_VERSION)
+          PY
