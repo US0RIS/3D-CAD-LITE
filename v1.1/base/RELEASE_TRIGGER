@@ -1,2 +1,3 @@
-ForgeCAD v1.1.0 final qualification trigger
-This commit is the canonical source SHA for CI, macOS, and Windows release builds.
+ForgeCAD v1.1.1 final qualification trigger
+Canonical source includes the Pololu D24V50F5 manufacturer CAD repair.
+This commit is the source SHA for CI, macOS, and Windows release builds.
