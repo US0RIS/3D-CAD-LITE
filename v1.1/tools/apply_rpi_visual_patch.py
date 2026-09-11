@@ -1,0 +1,93 @@
+from pathlib import Path
+
+p = Path('v1.1/base/physical_components.py')
+s = p.read_text(encoding='utf-8')
+
+pi4_old = '''    for args in [
+        (21.0, 16.2, 13.5, "#aeb5bc", (37.0, 17.75, 7.55)),
+        (17.2, 14.8, 16.0, "#aab2ba", (38.4, -1.0, 8.8)),
+        (17.2, 14.8, 16.0, "#aab2ba", (38.4, -19.0, 8.8)),
+    ]:
+        parts.append(_box(*args))
+
+    # Bottom-edge I/O.
+'''
+pi4_new = '''    for args in [
+        (21.0, 16.2, 13.5, "#aeb5bc", (37.0, 17.75, 7.55)),
+        (17.2, 14.8, 16.0, "#aab2ba", (38.4, -1.0, 8.8)),
+        (17.2, 14.8, 16.0, "#aab2ba", (38.4, -19.0, 8.8)),
+    ]:
+        parts.append(_box(*args))
+
+    # Visible connector mouths. These shallow inserts keep the viewport recognisable
+    # as the real board rather than three anonymous silver cuboids.
+    parts.extend([
+        _box(0.9, 11.6, 9.0, "#1b1d1f", (47.05, 17.75, 7.2), 0.35),
+        _box(0.9, 10.6, 5.2, "#17191b", (47.05, -1.0, 5.0), 0.25),
+        _box(0.9, 10.6, 5.2, "#17191b", (47.05, -1.0, 12.2), 0.25),
+        _box(1.3, 7.6, 1.15, "#1878c8", (47.35, -1.0, 5.0), 0.15),
+        _box(1.3, 7.6, 1.15, "#1878c8", (47.35, -1.0, 12.2), 0.15),
+        _box(0.9, 10.6, 5.2, "#17191b", (47.05, -19.0, 5.0), 0.25),
+        _box(0.9, 10.6, 5.2, "#17191b", (47.05, -19.0, 12.2), 0.25),
+        _box(1.3, 7.6, 1.15, "#d9d9d4", (47.35, -19.0, 5.0), 0.15),
+        _box(1.3, 7.6, 1.15, "#d9d9d4", (47.35, -19.0, 12.2), 0.15),
+    ])
+
+    # Bottom-edge I/O.
+'''
+if s.count(pi4_old) != 1:
+    raise SystemExit(f'Pi4 connector block target count={s.count(pi4_old)}')
+s = s.replace(pi4_old, pi4_new, 1)
+
+pi4_bottom = '''    parts.append(_cyl(6.2, 12.0, "#202225", (11.7, -30.2, 3.0), "y"))
+
+    # Representative passive banks.
+'''
+pi4_bottom_new = '''    parts.append(_cyl(6.2, 12.0, "#202225", (11.7, -30.2, 3.0), "y"))
+    parts.extend([
+        _box(6.8, 0.9, 1.45, "#25282b", (-33.0, -32.82, 2.4), 0.25),
+        _box(5.5, 0.9, 1.25, "#202225", (-17.8, -32.62, 2.3), 0.18),
+        _box(5.5, 0.9, 1.25, "#202225", (-4.3, -32.62, 2.3), 0.18),
+    ])
+    parts.extend([
+        _box(1.6, 0.8, 0.65, "#52d96b", (-37.2, -20.7, 1.125), 0.12),
+        _box(1.6, 0.8, 0.65, "#e34b43", (-34.9, -20.7, 1.125), 0.12),
+        _box(3.0, 1.5, 0.45, "#d1aa3a", (26.5, 20.3, 1.025), 0.12),
+        _box(3.0, 1.5, 0.45, "#d1aa3a", (30.2, 20.3, 1.025), 0.12),
+    ])
+
+    # Representative passive banks.
+'''
+if s.count(pi4_bottom) != 1:
+    raise SystemExit(f'Pi4 bottom block target count={s.count(pi4_bottom)}')
+s = s.replace(pi4_bottom, pi4_bottom_new, 1)
+
+pi5_marker = '''    ]:
+        parts.append(_box(*args))
+    return parts
+
+
+def _bearing_parts(c):
+'''
+pi5_new = '''    ]:
+        parts.append(_box(*args))
+    parts.extend([
+        _box(0.9, 11.5, 8.7, "#1b1d1f", (52.05, -16.5, 7.2), 0.3),
+        _box(0.9, 10.0, 5.0, "#17191b", (52.05, 3.0, 5.0), 0.2),
+        _box(0.9, 10.0, 5.0, "#17191b", (52.05, 3.0, 11.8), 0.2),
+        _box(1.2, 7.3, 1.1, "#1878c8", (52.35, 3.0, 5.0), 0.12),
+        _box(1.2, 7.3, 1.1, "#1878c8", (52.35, 3.0, 11.8), 0.12),
+        _box(0.9, 10.0, 5.0, "#17191b", (52.05, 19.0, 5.0), 0.2),
+        _box(0.9, 10.0, 5.0, "#17191b", (52.05, 19.0, 11.8), 0.2),
+    ])
+    return parts
+
+
+def _bearing_parts(c):
+'''
+if s.count(pi5_marker) != 1:
+    raise SystemExit(f'Pi5 block target count={s.count(pi5_marker)}')
+s = s.replace(pi5_marker, pi5_new, 1)
+
+p.write_text(s, encoding='utf-8')
+print('Raspberry Pi visual fidelity patch applied')
