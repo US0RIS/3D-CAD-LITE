@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 
 root=Path(SPECPATH)
-datas=[(str(root/'static'),'static'),(str(root/'README.md'),'.'),(str(root/'JARVIS_INTEGRATION.md'),'.'),(str(root/'COMPONENT_REGISTRY.md'),'.')]
+datas=[(str(root/'static'),'static'),(str(root/'README.md'),'.'),(str(root/'JARVIS_INTEGRATION.md'),'.'),(str(root/'COMPONENT_REGISTRY.md'),'.'),(str(root/'component_assets'),'component_assets')]
 binaries=[];hidden=[]
 for pkg in ['cadquery','OCP','vtkmodules','webview','uvicorn','fastapi','starlette','pydantic']:
     try:
