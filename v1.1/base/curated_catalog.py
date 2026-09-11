@@ -77,8 +77,8 @@ def component(cid, category, manufacturer, model, dims, mass, *, mpn=None,
               geometry_fidelity=None, programmable=False, platform=None):
     src = source(url, title or f"{manufacturer} {model}")
     assets = list(assets or [])
-    fidelity = geometry_fidelity or ("official_step" if official_step else "detailed_parametric")
-    preferred = "step_asset" if assets else ("official_step" if official_step else "parametric")
+    fidelity = geometry_fidelity or ("official_step" if official_step and assets else "detailed_parametric")
+    preferred = "step_asset" if assets else "parametric"
     return {
         "schema_version": 1,
         "id": cid,

@@ -345,6 +345,15 @@ def component_parts(obj):
     c = component_definition(obj)
     if not c:
         return None
+    profile = str(c.get("geometry", {}).get("profile") or c.get("category") or "box")
+
+    # Visual geometry is deliberately component-specific and color-coded for boards.
+    # Manufacturer STEP remains the engineering authority through component_shape().
+    if profile == "raspberry_pi_4_model_b":
+        return _pi4_parts()
+    if profile == "raspberry_pi_5":
+        return _pi5_parts()
+
     step = _step_asset(c)
     if step:
         try:
@@ -353,12 +362,6 @@ def component_parts(obj):
                 return [(shape, "#aeb7c2")]
         except Exception:
             pass
-
-    profile = str(c.get("geometry", {}).get("profile") or c.get("category") or "box")
-    if profile == "raspberry_pi_4_model_b":
-        return _pi4_parts()
-    if profile == "raspberry_pi_5":
-        return _pi5_parts()
 
     dispatch = {
         "bearing": _bearing_parts,
@@ -386,6 +389,22 @@ def component_parts(obj):
 
 
 def component_shape(obj):
+    """Return engineering-authority geometry for analysis/collision/export.
+
+    If a validated STEP asset exists it wins, even when the viewport uses a richer
+    color-coded parametric representation. This keeps visual usability separate
+    from the mechanical authority used to decide whether something physically fits.
+    """
+    c = component_definition(obj)
+    if c:
+        step = _step_asset(c)
+        if step:
+            try:
+                shape = cq.importers.importStep(str(step)).val()
+                if _shape_matches_declared_envelope(shape, c):
+                    return shape
+            except Exception:
+                pass
     parts = component_parts(obj)
     return cq.Compound.makeCompound([s for s, _ in parts]) if parts else None
 

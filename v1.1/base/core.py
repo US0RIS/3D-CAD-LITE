@@ -196,8 +196,8 @@ def _base_shape(obj: dict[str, Any]):
     p=obj.get("params") or {}; kind=obj.get("kind","box")
     if kind=="mounting_plate": return _mounting_plate_shape(obj)
     if kind=="component":
-        parts=_component_parts(obj)
-        if parts: return cq.Compound.makeCompound([sh for sh,_ in parts])
+        shape=physical_components.component_shape(obj)
+        if shape is not None:return shape
         return cq.Workplane("XY").box(float(p.get("x",20)),float(p.get("y",20)),float(p.get("z",20))).val()
     if kind=="box": return cq.Workplane("XY").box(float(p.get("x",20)),float(p.get("y",20)),float(p.get("z",20))).val()
     if kind=="cylinder": return cq.Workplane("XY").circle(float(p.get("radius",10))).extrude(float(p.get("height",20)),both=True).val()
