@@ -15,6 +15,9 @@ python api_test.py
 python acceptance_test.py
 python acceptance_api_test.py
 python component_fidelity_test.py
+python component_agent_policy_test.py
+python production_readiness_test.py
+python production_readiness_api_test.py
 python v1_test.py
 python release_test.py
 python -m PyInstaller --noconfirm --clean forgecad.spec

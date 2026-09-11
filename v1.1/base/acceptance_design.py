@@ -74,7 +74,7 @@ def build_project()->dict[str,Any]:
         except KeyError:missing.append(cid)
     if missing:raise RuntimeError("Acceptance catalog incomplete: "+", ".join(missing))
     purchased=[_instance(k) for k in ("supply","pi","solenoid","driver","buck")];plate=_plate();stamp=datetime.now(timezone.utc).isoformat();project={
-        "schema":4,"version":"1.1.0-dev","name":"ForgeCAD v1.1 Real-System Acceptance Assembly","created_at":stamp,"updated_at":stamp,
+        "schema":4,"version":"1.1.1","name":"ForgeCAD v1.1 Real-System Acceptance Assembly","created_at":stamp,"updated_at":stamp,
         "objects":[plate,*purchased],"joints":[],"loads":[],"constraints":[],"requirements":[
             {"id":"req-real-components","metric":"object_count","op":">=","target":6,"description":"Acceptance assembly contains fabricated structure plus real purchased hardware."}
         ],"bom":_bom_for(purchased),"connections":[],"simulations":[],"notebook":[

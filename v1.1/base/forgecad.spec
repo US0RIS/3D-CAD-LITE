@@ -22,4 +22,4 @@ pyz=PYZ(a.pure)
 exe=EXE(pyz,a.scripts,[],exclude_binaries=True,name='ForgeCAD',debug=False,bootloader_ignore_signals=False,strip=False,upx=False,console=False,disable_windowed_traceback=False)
 coll=COLLECT(exe,a.binaries,a.datas,strip=False,upx=False,name='ForgeCAD')
 if sys.platform=='darwin':
-    app=BUNDLE(coll,name='ForgeCAD.app',icon=None,bundle_identifier='com.forgecad.workbench',info_plist={'CFBundleShortVersionString':'1.1.0','CFBundleVersion':'110','NSHighResolutionCapable':True,'LSMinimumSystemVersion':'13.0'})
+    app=BUNDLE(coll,name='ForgeCAD.app',icon=None,bundle_identifier='com.forgecad.workbench',info_plist={'CFBundleShortVersionString':'1.1.1','CFBundleVersion':'111','NSHighResolutionCapable':True,'LSMinimumSystemVersion':'13.0'})

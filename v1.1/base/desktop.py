@@ -12,7 +12,7 @@ def platform_data_dir():
     return Path(os.environ.get("XDG_DATA_HOME") or (Path.home()/".local"/"share"))/"ForgeCAD"
 DATA_DIR=platform_data_dir();DATA_DIR.mkdir(parents=True,exist_ok=True)
 os.environ.setdefault("FORGECAD_DATA_DIR",str(DATA_DIR));os.environ.setdefault("FORGECAD_OLLAMA_MODEL","qwen3:8b");os.environ.setdefault("FORGECAD_STRICT_OLLAMA_MODEL","1")
-BUILD_ID=f"forgecad-v1.1.0-{sys.platform}-{os.uname().machine if hasattr(os,'uname') else 'x64'}";os.environ["FORGECAD_BUILD_ID"]=BUILD_ID
+BUILD_ID=f"forgecad-v1.1.1-{sys.platform}-{os.uname().machine if hasattr(os,'uname') else 'x64'}";os.environ["FORGECAD_BUILD_ID"]=BUILD_ID
 DISCOVERY_FILE=DATA_DIR/"jarvis_bridge.json"
 
 def free_port(preferred=8765):

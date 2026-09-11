@@ -1,6 +1,9 @@
-# ForgeCAD v1.1
+# ForgeCAD v1.1.1
 
 ForgeCAD is a local-first, AI-native mechanical/electromechanical engineering workbench. One canonical project model is shared by the 3D UI, local Qwen engineering agent, embedded-code editor, analysis tools, component registry, and Jarvis bridge. Humans and agents call the same deterministic operations; UI state is never the engineering source of truth.
+
+
+**v1.1.1 production-fidelity update.** This maintenance release makes real-part fidelity explicit: authoritative manufacturer CAD is preferred for engineering operations, proxy geometry is labeled and blocked from physical verification, and release qualification requires the complete regression/readiness suite on Linux, native Apple Silicon macOS, and Windows x64.
 
 ## What v1.1 changes
 
@@ -89,7 +92,7 @@ Run `windows/build.ps1` from this directory. The build derives the application v
 - `dist/ForgeCAD/`
 - `dist/installer/ForgeCAD-Setup.exe`
 
-The repository workflow `v110-windows-rc.yml` performs the same build on Windows Server 2025 and then installs/smoke-tests the resulting installer.
+The repository workflow `v111-windows-rc.yml` performs the same build on Windows Server 2025 and then installs/smoke-tests the resulting installer.
 
 ## macOS release candidate
 
@@ -98,4 +101,4 @@ Run `macos/build.sh` on Apple Silicon macOS. It derives the version from `core.A
 - `dist/ForgeCAD-v<version>-macOS-arm64.dmg`
 - `dist/ForgeCAD-v<version>-macOS-arm64-app.zip`
 
-The repository workflow `v110-macos-rc.yml` performs this on an Apple Silicon macOS runner. Because the current release process is not Apple-notarized, Gatekeeper may require the standard Control-click → Open first-launch path.
+The repository workflow `v111-macos-rc.yml` performs this on an Apple Silicon macOS runner. Because the current release process is not Apple-notarized, Gatekeeper may require the standard Control-click → Open first-launch path.
