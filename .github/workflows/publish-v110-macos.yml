@@ -1,0 +1,61 @@
+name: Publish ForgeCAD v1.1.0 macOS
+
+on:
+  push:
+    branches: [forgecad-v1.1.0-dev]
+    paths:
+      - ".github/workflows/publish-v110-macos.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: macos-15
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.0-dev
+      - name: Verify Apple Silicon runner
+        shell: bash
+        run: test "$(uname -m)" = "arm64"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and smoke-test ForgeCAD 1.1.0
+        shell: bash
+        working-directory: v1.1/base
+        run: bash macos/build.sh
+      - name: Verify exact release artifacts
+        shell: bash
+        working-directory: v1.1/base
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import core; print(core.APP_VERSION)')"
+          test "$VERSION" = "1.1.0"
+          test -f "dist/ForgeCAD-v1.1.0-macOS-arm64.dmg"
+          test -f "dist/ForgeCAD-v1.1.0-macOS-arm64-app.zip"
+          shasum -a 256 "dist/ForgeCAD-v1.1.0-macOS-arm64.dmg" "dist/ForgeCAD-v1.1.0-macOS-arm64-app.zip"
+      - name: Publish GitHub release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: v1.1/base
+        run: |
+          set -euo pipefail
+          if gh release view forgecad-v1.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload forgecad-v1.1.0 \
+              dist/ForgeCAD-v1.1.0-macOS-arm64.dmg \
+              dist/ForgeCAD-v1.1.0-macOS-arm64-app.zip \
+              --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create forgecad-v1.1.0 \
+              dist/ForgeCAD-v1.1.0-macOS-arm64.dmg \
+              dist/ForgeCAD-v1.1.0-macOS-arm64-app.zip \
+              --target "$GITHUB_SHA" \
+              --title "ForgeCAD v1.1.0" \
+              --notes "ForgeCAD v1.1.0 native macOS Apple Silicon build from the qualified v1.1.0 branch. Built and smoke-tested on an Apple Silicon GitHub runner." \
+              --repo "$GITHUB_REPOSITORY"
+          fi
