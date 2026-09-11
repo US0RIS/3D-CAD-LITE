@@ -1,0 +1,73 @@
+name: Apply v1.1.1 visual/exact geometry separation
+
+on:
+  push:
+    branches: [forgecad-v1.1.1-dev]
+    paths:
+      - ".github/workflows/apply-v111-geometry-separation.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: forgecad-v1.1.1-dev
+          fetch-depth: 0
+      - name: Apply focused geometry authority fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p=Path(path); text=p.read_text(encoding='utf-8')
+              count=text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one replacement target, found {count}')
+              p.write_text(text.replace(old,new,1),encoding='utf-8')
+
+          # Never advertise official STEP fidelity unless an actual STEP asset is present.
+          replace_once(
+              'v1.1/base/curated_catalog.py',
+              '    fidelity = geometry_fidelity or ("official_step" if official_step else "detailed_parametric")\n    preferred = "step_asset" if assets else ("official_step" if official_step else "parametric")',
+              '    fidelity = geometry_fidelity or ("official_step" if official_step and assets else "detailed_parametric")\n    preferred = "step_asset" if assets else "parametric"'
+          )
+
+          # The viewport should use recognisable, colored component-specific geometry for Pi boards.
+          # Exact engineering shape can independently use official STEP below.
+          old='''def component_parts(obj):\n    c = component_definition(obj)\n    if not c:\n        return None\n    step = _step_asset(c)\n    if step:\n        try:\n            shape = cq.importers.importStep(str(step)).val()\n            if _shape_matches_declared_envelope(shape, c):\n                return [(shape, "#aeb7c2")]\n        except Exception:\n            pass\n\n    profile = str(c.get("geometry", {}).get("profile") or c.get("category") or "box")\n    if profile == "raspberry_pi_4_model_b":\n        return _pi4_parts()\n    if profile == "raspberry_pi_5":\n        return _pi5_parts()\n'''
+          new='''def component_parts(obj):\n    c = component_definition(obj)\n    if not c:\n        return None\n    profile = str(c.get("geometry", {}).get("profile") or c.get("category") or "box")\n\n    # Visual geometry is deliberately component-specific and color-coded for boards.\n    # Manufacturer STEP remains the engineering authority through component_shape().\n    if profile == "raspberry_pi_4_model_b":\n        return _pi4_parts()\n    if profile == "raspberry_pi_5":\n        return _pi5_parts()\n\n    step = _step_asset(c)\n    if step:\n        try:\n            shape = cq.importers.importStep(str(step)).val()\n            if _shape_matches_declared_envelope(shape, c):\n                return [(shape, "#aeb7c2")]\n        except Exception:\n            pass\n'''
+          replace_once('v1.1/base/physical_components.py',old,new)
+
+          replace_once(
+              'v1.1/base/physical_components.py',
+              '''def component_shape(obj):\n    parts = component_parts(obj)\n    return cq.Compound.makeCompound([s for s, _ in parts]) if parts else None\n''',
+              '''def component_shape(obj):\n    """Return engineering-authority geometry for analysis/collision/export.\n\n    If a validated STEP asset exists it wins, even when the viewport uses a richer\n    color-coded parametric representation. This keeps visual usability separate\n    from the mechanical authority used to decide whether something physically fits.\n    """\n    c = component_definition(obj)\n    if c:\n        step = _step_asset(c)\n        if step:\n            try:\n                shape = cq.importers.importStep(str(step)).val()\n                if _shape_matches_declared_envelope(shape, c):\n                    return shape\n            except Exception:\n                pass\n    parts = component_parts(obj)\n    return cq.Compound.makeCompound([s for s, _ in parts]) if parts else None\n'''
+          )
+
+          # Core engineering operations use component_shape(); tessellation continues to use
+          # component_parts() so the UI keeps per-part colors.
+          replace_once(
+              'v1.1/base/core.py',
+              '''    if kind=="component":\n        parts=_component_parts(obj)\n        if parts: return cq.Compound.makeCompound([sh for sh,_ in parts])\n        return cq.Workplane("XY").box(float(p.get("x",20)),float(p.get("y",20)),float(p.get("z",20))).val()\n''',
+              '''    if kind=="component":\n        shape=physical_components.component_shape(obj)\n        if shape is not None:return shape\n        return cq.Workplane("XY").box(float(p.get("x",20)),float(p.get("y",20)),float(p.get("z",20))).val()\n'''
+          )
+          PY
+      - name: Syntax check
+        run: python -m compileall -q v1.1/base
+      - name: Commit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v1.1/base/curated_catalog.py v1.1/base/physical_components.py v1.1/base/core.py
+          git commit -m "Separate visual component geometry from engineering authority" || exit 0
+          git fetch origin forgecad-v1.1.1-dev
+          git rebase origin/forgecad-v1.1.1-dev
+          git push origin HEAD:forgecad-v1.1.1-dev
