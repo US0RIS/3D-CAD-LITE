@@ -48,8 +48,8 @@ jobs:
           if (-not (Test-Path $Installer)) { throw "Installer missing" }
           $Pi5 = Get-ChildItem -Path "dist/ForgeCAD" -Recurse -Filter "raspberry_pi_5_official.step" | Select-Object -First 1
           $Pi4 = Get-ChildItem -Path "dist/ForgeCAD" -Recurse -Filter "raspberry_pi_4_model_b_parametric.step" | Select-Object -First 1
-          if (-not $Pi5 -or $Pi5.Length -lt 100000) { throw "Bundled Pi 5 authoritative CAD missing" }
-          if (-not $Pi4 -or $Pi4.Length -lt 100000) { throw "Bundled Pi 4 CAD missing" }
+          if (-not $Pi5 -or $Pi5.Length -lt 1000000) { throw "Bundled Pi 5 authoritative CAD missing or implausibly small" }
+          if (-not $Pi4 -or $Pi4.Length -lt 100000) { throw "Bundled Pi 4 CAD missing or implausibly small" }
           Get-FileHash $Installer -Algorithm SHA256
           Get-Item $Installer | Select-Object Name,Length
       - uses: actions/upload-artifact@v4
