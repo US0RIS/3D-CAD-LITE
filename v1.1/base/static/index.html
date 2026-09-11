@@ -12,7 +12,7 @@
     <div class="projectTitle"><input id="projectName" value="ForgeCAD Project"><span id="saveState">LOCAL</span></div>
     <div class="topActions"><button id="undoBtn" title="Undo">↶</button><button id="redoBtn" title="Redo">↷</button><button id="fitBtn">Fit</button><button id="exportBtn">Export STEP</button><div class="health" id="healthDot"></div></div>
   </header>
-  <div class="designbar"><div class="sectionLabel">DESIGNS</div><div id="designTabs" class="designTabs"></div><button id="newBranchBtn" class="plus">＋ Branch</button><button id="compareBtn">Compare</button></div>
+  <div class="designbar"><div class="sectionLabel">DESIGNS</div><div id="designTabs" class="designTabs"></div><button id="newBranchBtn" class="plus">＋ Branch</button><button id="compareBtn">Compare</button><button id="statusBtn">Design status…</button><button id="readinessBtn">Production readiness</button></div>
   <main class="workspace">
     <aside class="left rail">
       <section class="panel aiPanel"><div class="panelHead"><span>FORGE AI</span><span id="ollamaState" class="badge">QWEN3:8B</span></div><div id="chatLog" class="chatLog"><div class="assistantMsg">Describe a part, change, load case, or component you want to add. Execution uses the same typed operations as the UI and Jarvis.</div></div><div class="chatInput"><textarea id="chatText" placeholder="Make the base plate 15% thicker…"></textarea><div><button id="askBtn">Ask</button><button id="applyBtn" class="primary">Plan + Apply</button></div></div></section>

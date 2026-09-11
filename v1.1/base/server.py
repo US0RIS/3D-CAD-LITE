@@ -12,6 +12,7 @@ import agents, analysis, core, jarvis_bridge, software
 import component_registry as components
 import component_importers
 import physical_components
+import production_readiness
 import project_bundle
 import acceptance_design
 import assembly_validation
@@ -111,7 +112,16 @@ def compare(name:str,other:str|None=None):
     except KeyError as e:fail(e,404)
 @app.post("/api/design/status")
 def design_status(body:DesignStatusBody):
-    try:return core.set_design_status(body.name,body.status,body.note,body.physical_verified)
+    try:
+        if body.physical_verified:
+            state=core.PROJECT if body.name==core.ACTIVE_DESIGN else core.BRANCHES.get(body.name)
+            if state is None:raise KeyError(body.name)
+            readiness=production_readiness.assess(state,core.build_shape)
+            if not readiness["ready_for_physical_verification"]:
+                codes=", ".join(str(x.get("code")) for x in readiness["blockers"][:6])
+                raise HTTPException(409,f"This design cannot be marked physically verified yet. Resolve: {codes or 'production-readiness blockers'}")
+        return core.set_design_status(body.name,body.status,body.note,body.physical_verified)
+    except HTTPException:raise
     except KeyError as e:fail(e,404)
 
 @app.get("/api/components")
@@ -178,6 +188,8 @@ def connection_delete(connection_id:str):
     except KeyError as e:fail(e,404)
 @app.get("/api/reality-check")
 def reality_check():return core.reality_check()
+@app.get("/api/production-readiness")
+def production_ready():return production_readiness.assess(core.PROJECT,core.build_shape)
 @app.get("/api/system-check")
 def system_check():return core.reality_check()
 @app.get("/api/assembly/check")
