@@ -12,7 +12,7 @@ for pkg in ['cadquery','OCP','vtkmodules','webview','uvicorn','fastapi','starlet
     except Exception as e:print('collect_all warning',pkg,e)
 # Backends and optional platform integrations are loaded dynamically by pywebview.
 hidden += ['multipart','python_multipart']
-first_party = ['agents','analysis','core','components','component_registry','component_importers','physical_components','system_validation','project_bundle','acceptance_design','assembly_validation','mounting','software','jarvis_bridge']
+first_party = ['agents','analysis','core','components','component_registry','component_importers','physical_components','production_readiness','system_validation','project_bundle','acceptance_design','assembly_validation','mounting','software','jarvis_bridge']
 hidden += first_party
 if sys.platform == 'darwin': hidden += ['webview.platforms.cocoa']
 elif sys.platform == 'win32': hidden += ['webview.platforms.edgechromium','webview.platforms.winforms']
