@@ -38,12 +38,10 @@ jobs:
           once('v1.1/base/forgecad.spec',"'CFBundleVersion':'110'","'CFBundleVersion':'111'")
           once('v1.1/base/windows/installer.iss','#define MyAppVersion "1.1.0"','#define MyAppVersion "1.1.1"')
 
-          # Keep the release-preflight contract locked to the stable version.
           p=Path('v1.1/base/release_test.py'); s=p.read_text(encoding='utf-8')
           s=s.replace('1.1.0','1.1.1').replace("'CFBundleVersion':'110'","'CFBundleVersion':'111'")
           p.write_text(s,encoding='utf-8')
 
-          # Run exact-part policy in every native build, not only a specialist CI job.
           for path in ['v1.1/base/macos/build.sh','v1.1/base/windows/build.ps1']:
               p=Path(path); s=p.read_text(encoding='utf-8')
               marker='python component_fidelity_test.py\n'
@@ -54,11 +52,11 @@ jobs:
 
           p=Path('.github/workflows/v111-ci.yml'); s=p.read_text(encoding='utf-8')
           if 'python component_agent_policy_test.py' not in s:
-              s=s.replace('          python component_fidelity_test.py\n','          python component_fidelity_test.py\n          python component_agent_policy_test.py\n',1)
+              marker='          python component_fidelity_test.py\n'
+              if s.count(marker)!=1: raise SystemExit('v111-ci.yml: component fidelity marker missing')
+              s=s.replace(marker,marker+'          python component_agent_policy_test.py\n',1)
           p.write_text(s,encoding='utf-8')
 
-          # Make the release-candidate CAD-asset checks at least as strict as the
-          # component-fidelity qualification they replace.
           p=Path('.github/workflows/v111-macos-rc.yml'); s=p.read_text(encoding='utf-8')
           s=s.replace("-size +100k | grep -q .\n          find dist/ForgeCAD.app -type f -name 'raspberry_pi_4_model_b_parametric.step' -size +100k", "-size +1000k | grep -q .\n          find dist/ForgeCAD.app -type f -name 'raspberry_pi_4_model_b_parametric.step' -size +100k",1)
           p.write_text(s,encoding='utf-8')
@@ -84,9 +82,9 @@ jobs:
         run: |
           set -euo pipefail
           python -m compileall -q .
+          python prepare_frontend.py
           python release_test.py
           python - <<'PY'
-          import ast,re
           from pathlib import Path
           core=Path('core.py').read_text(); assert 'APP_VERSION = "1.1.1"' in core
           spec=Path('forgecad.spec').read_text(); assert "'CFBundleShortVersionString':'1.1.1'" in spec and "'CFBundleVersion':'111'" in spec
@@ -94,6 +92,7 @@ jobs:
           assert 'python component_agent_policy_test.py' in Path('windows/build.ps1').read_text()
           print('ForgeCAD v1.1.1 finalization preflight: PASS')
           PY
+          rm -rf static/vendor
       - name: Remove superseded one-shot v1.1.1 migration workflows
         shell: bash
         run: |
