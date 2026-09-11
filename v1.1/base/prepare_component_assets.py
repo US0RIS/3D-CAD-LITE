@@ -33,6 +33,8 @@ RPI5_STEP_URL = (
 )
 RPI5_OUT = ASSET_DIR / "raspberry_pi_5_official.step"
 RPI4_OUT = ASSET_DIR / "raspberry_pi_4_model_b_parametric.step"
+POLOLU_D24V50F5_STEP_URL = "https://www.pololu.com/file/0J1437/d24v50f5-step-down-voltage-regulator.step"
+POLOLU_D24V50F5_OUT = ASSET_DIR / "pololu_d24v50f5_official.step"
 
 BOARD_LENGTH_MM = 85.0
 BOARD_WIDTH_MM = 56.0
@@ -217,6 +219,43 @@ def fetch_raspberry_pi_5() -> None:
         cq.exporters.export(canonical, str(RPI5_OUT))
 
 
+
+def fetch_pololu_d24v50f5() -> None:
+    """Fetch Pololu's official D24V50F5 STEP and align it to ForgeCAD's centred frame."""
+    req = urllib.request.Request(
+        POLOLU_D24V50F5_STEP_URL,
+        headers={"User-Agent": "ForgeCAD/1.1 component asset builder"},
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        payload = response.read()
+    if len(payload) < 1_000_000:
+        raise RuntimeError(f"Official Pololu D24V50F5 STEP unexpectedly small: {len(payload)} bytes")
+
+    with tempfile.TemporaryDirectory() as td:
+        raw = Path(td) / "pololu-d24v50f5-manufacturer.step"
+        raw.write_bytes(payload)
+        shape = cq.importers.importStep(str(raw)).val()
+        bb = shape.BoundingBox()
+
+        direct_error = abs(float(bb.xlen) - 17.8) + abs(float(bb.ylen) - 20.3)
+        swapped_error = abs(float(bb.xlen) - 20.3) + abs(float(bb.ylen) - 17.8)
+        if swapped_error < direct_error:
+            shape = shape.rotate((0, 0, 0), (0, 0, 1), 90.0)
+            bb = shape.BoundingBox()
+
+        cx = (bb.xmin + bb.xmax) / 2.0
+        cy = (bb.ymin + bb.ymax) / 2.0
+        cz = (bb.zmin + bb.zmax) / 2.0
+        canonical = shape.translate((-cx, -cy, -cz))
+        check = canonical.BoundingBox()
+        if abs(float(check.xlen) - 17.8) > 1.0 or abs(float(check.ylen) - 20.3) > 1.0:
+            raise RuntimeError(
+                f"Official Pololu STEP has unexpected XY envelope: {check.xlen:.3f} x {check.ylen:.3f} mm"
+            )
+        if not 5.0 <= float(check.zlen) <= 12.0:
+            raise RuntimeError(f"Official Pololu STEP has unexpected Z envelope: {check.zlen:.3f} mm")
+        cq.exporters.export(canonical, str(POLOLU_D24V50F5_OUT))
+
 def _verify_board_frame(path: Path) -> tuple[float, float, float]:
     shape = cq.importers.importStep(str(path)).val()
     board = _find_pcb_solid(shape)
@@ -243,10 +282,20 @@ def verify_assets() -> None:
             )
         print(f"Verified {path.name}: envelope {x:.2f} x {y:.2f} x {z:.2f} mm; PCB frame canonical")
 
+    if not POLOLU_D24V50F5_OUT.is_file() or POLOLU_D24V50F5_OUT.stat().st_size < 1_000_000:
+        raise RuntimeError(f"Missing or implausible component asset: {POLOLU_D24V50F5_OUT}")
+    pololu = cq.importers.importStep(str(POLOLU_D24V50F5_OUT)).val().BoundingBox()
+    if abs(float(pololu.xlen) - 17.8) > 1.0 or abs(float(pololu.ylen) - 20.3) > 1.0 or not 5.0 <= float(pololu.zlen) <= 12.0:
+        raise RuntimeError(
+            f"Pololu D24V50F5 asset has implausible envelope: {pololu.xlen:.2f} x {pololu.ylen:.2f} x {pololu.zlen:.2f} mm"
+        )
+    print(f"Verified {POLOLU_D24V50F5_OUT.name}: envelope {pololu.xlen:.2f} x {pololu.ylen:.2f} x {pololu.zlen:.2f} mm; manufacturer STEP")
+
 
 def main() -> None:
     build_raspberry_pi_4()
     fetch_raspberry_pi_5()
+    fetch_pololu_d24v50f5()
     verify_assets()
     print(f"Prepared high-fidelity component assets in {ASSET_DIR}")
 

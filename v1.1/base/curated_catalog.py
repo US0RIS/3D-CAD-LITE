@@ -327,6 +327,11 @@ CATALOG = [
         title="Pololu 5V, 5A Step-Down Voltage Regulator D24V50F5",
         procurement={"supplier": "Pololu", "sku": "2851", "unit_cost_usd": 32.95, "price_as_of": "2026-09-09"},
         official_step=True,
+        assets=[step_asset(
+            "pololu_d24v50f5_official.step",
+            "https://www.pololu.com/file/0J1437/d24v50f5-step-down-voltage-regulator.step",
+            official=True,
+        )],
     ),
     component(
         "fan.noctua.nf_a4x10_5v", "fan", "Noctua", "NF-A4x10 5V",
