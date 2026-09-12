@@ -34,11 +34,30 @@ if (-not (Test-Path -LiteralPath $PackagedExe -PathType Leaf)) {
 }
 $PackagedExe = (Resolve-Path -LiteralPath $PackagedExe).Path
 $PackagedDir = Split-Path -Parent $PackagedExe
+$TracePath = Join-Path $env:LOCALAPPDATA "ForgeCAD\packaged_self_test.log"
+if (Test-Path -LiteralPath $TracePath) { Remove-Item -LiteralPath $TracePath -Force }
+
 $SelfTest = Start-Process -FilePath $PackagedExe -ArgumentList @('--self-test') -WorkingDirectory $PackagedDir -Wait -PassThru
 if ($SelfTest.ExitCode -ne 0) {
+    Write-Host "--- packaged self-test native trace ---"
+    if (Test-Path -LiteralPath $TracePath) {
+        Get-Content -LiteralPath $TracePath | ForEach-Object { Write-Host $_ }
+    } else {
+        Write-Host "No packaged self-test trace was created; failure occurred before self_test() opened its trace."
+    }
+    Write-Host "--- end packaged self-test native trace ---"
     throw "Packaged ForgeCAD self-test returned exit code $($SelfTest.ExitCode)"
 }
+if (-not (Test-Path -LiteralPath $TracePath)) {
+    throw "Packaged ForgeCAD self-test exited successfully but did not create its qualification trace"
+}
+$TraceText = Get-Content -LiteralPath $TracePath -Raw
+if ($TraceText -notmatch '(?m)\spass:\s') {
+    Write-Host $TraceText
+    throw "Packaged ForgeCAD self-test did not record a PASS checkpoint"
+}
 Write-Host "Packaged ForgeCAD self-test passed."
+Get-Content -LiteralPath $TracePath | ForEach-Object { Write-Host $_ }
 
 $ISCC = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
 if (-not $ISCC) {
