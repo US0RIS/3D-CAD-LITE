@@ -73,20 +73,67 @@ def start_embedded():
 def run_headless():
     import uvicorn,jarvis_bridge,server
     ensure_ollama();port=free_port();url=f"http://127.0.0.1:{port}";jarvis_bridge.write_discovery(url);uvicorn.run(server.app,host="127.0.0.1",port=port,log_level="warning",access_log=False);return 0
+
 def self_test():
-    frontend_preflight();import core,components,analysis,server
-    if len(components.REGISTRY)<200:raise RuntimeError("Component registry incomplete")
-    obj=core.PROJECT["objects"][0];m=core.object_metrics(obj);mesh=core.tessellate(obj,.5);a=analysis.quick_cantilever(obj,100)
-    assert m["volume_mm3"]>0 and mesh["triangles"] and a["yield_fos"]>0
-    result=json.dumps({"ok":True,"build":BUILD_ID,"component_count":len(components.REGISTRY),"volume_mm3":m["volume_mm3"]})
-    # PyInstaller windowed/GUI builds intentionally have no console on Windows;
-    # sys.stdout may therefore be None even when launched with --self-test.
-    # Qualification is exit-code authoritative, so diagnostic output is best-effort.
-    out=getattr(sys,"stdout",None)
-    if out is not None:
-        try:out.write(result+"\n");out.flush()
+    # Frozen GUI applications do not have a console on Windows, and native CAD
+    # failures can terminate the process before a Python traceback exists. Keep a
+    # deterministic on-disk qualification trace and enable faulthandler early.
+    trace_path=DATA_DIR/"packaged_self_test.log"
+    trace_path.parent.mkdir(parents=True,exist_ok=True)
+    trace=open(trace_path,"w",encoding="utf-8",buffering=1)
+    def mark(stage,detail=""):
+        trace.write(f"{time.time():.3f} {stage}{(': '+detail) if detail else ''}\n");trace.flush()
+    try:
+        try:
+            import faulthandler
+            faulthandler.enable(file=trace,all_threads=True)
+        except Exception as exc:
+            mark("faulthandler-unavailable",repr(exc))
+        mark("start",BUILD_ID)
+        frontend_preflight();mark("frontend-preflight")
+        import cadquery as cq
+        mark("cadquery-import",getattr(cq,"__version__","unknown"))
+        import core;mark("core-import")
+        import components;mark("components-import",str(len(components.REGISTRY)))
+        import analysis;mark("analysis-import")
+        import server;mark("server-import")
+        if len(components.REGISTRY)<200:raise RuntimeError("Component registry incomplete")
+
+        # Exercise the exact OpenCascade paths needed by production: parametric
+        # geometry, tessellation, engineering analysis and bundled STEP import.
+        obj=core.PROJECT["objects"][0]
+        m=core.object_metrics(obj);mark("object-metrics")
+        mesh=core.tessellate(obj,.5);mark("tessellation",str(len(mesh.get("triangles",[]))))
+        a=analysis.quick_cantilever(obj,100);mark("analysis",str(a.get("yield_fos")))
+        assert m["volume_mm3"]>0 and mesh["triangles"] and a["yield_fos"]>0
+
+        step_assets=[
+            ("raspberry_pi_5_official.step",80.0,50.0),
+            ("pololu_d24v50f5_official.step",15.0,18.0),
+        ]
+        for filename,min_x,min_y in step_assets:
+            path=ROOT/"component_assets"/filename
+            if not path.exists():raise RuntimeError(f"Bundled authoritative STEP missing: {filename}")
+            shape=cq.importers.importStep(str(path)).val();bb=shape.BoundingBox()
+            if bb.xlen<min_x or bb.ylen<min_y or bb.zlen<=0:raise RuntimeError(f"Bundled STEP envelope invalid: {filename}")
+            mark("step-import",f"{filename} {bb.xlen:.2f}x{bb.ylen:.2f}x{bb.zlen:.2f}")
+
+        result=json.dumps({"ok":True,"build":BUILD_ID,"component_count":len(components.REGISTRY),"volume_mm3":m["volume_mm3"]})
+        mark("pass",result)
+        # PyInstaller windowed/GUI builds intentionally have no console on Windows;
+        # sys.stdout may therefore be None even when launched with --self-test.
+        out=getattr(sys,"stdout",None)
+        if out is not None:
+            try:out.write(result+"\n");out.flush()
+            except Exception:pass
+        return 0
+    except BaseException as exc:
+        mark("python-failure",repr(exc))
+        raise
+    finally:
+        try:trace.flush();trace.close()
         except Exception:pass
-    return 0
+
 def run_ui():
     frontend_preflight();ensure_ollama();base=start_embedded();warm_model();import webview
     webview.create_window("ForgeCAD",url=base+f"/?build={BUILD_ID}",width=1600,height=980,min_size=(1050,680),background_color="#090c10",text_select=True)
