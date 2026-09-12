@@ -107,4 +107,39 @@ jobs:
             "$APP_ZIP#ForgeCAD v1.1.1 macOS Apple Silicon app ZIP" \
             "$EXE#ForgeCAD v1.1.1 Windows x64 Setup" \
             "release/SHA256SUMS.txt#SHA-256 checksums" --clobber
+
+      - name: Freeze qualified source and verify published release
+        if: steps.runs.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.runs.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          STABLE_BRANCH=forgecad-release-v1.1.1
+          if gh api "repos/$REPO/git/ref/heads/$STABLE_BRANCH" >/dev/null 2>&1; then
+            CURRENT=$(gh api "repos/$REPO/git/ref/heads/$STABLE_BRANCH" --jq '.object.sha')
+            test "$CURRENT" = "$HEAD_SHA" || {
+              echo "Stable branch already exists at unexpected SHA $CURRENT (wanted $HEAD_SHA)."
+              exit 1
+            }
+          else
+            gh api --method POST "repos/$REPO/git/refs" -f ref="refs/heads/$STABLE_BRANCH" -f sha="$HEAD_SHA" >/dev/null
+          fi
+
+          TAG_SHA=$(gh api "repos/$REPO/git/ref/tags/forgecad-v1.1.1" --jq '.object.sha')
+          test "$TAG_SHA" = "$HEAD_SHA"
+
+          ASSETS=$(gh release view forgecad-v1.1.1 --repo "$REPO" --json assets --jq '.assets[].name')
+          for REQUIRED in \
+            ForgeCAD-v1.1.1-macOS-arm64.dmg \
+            ForgeCAD-v1.1.1-macOS-arm64-app.zip \
+            ForgeCAD-v1.1.1-Windows-x64-Setup.exe \
+            SHA256SUMS.txt; do
+            grep -Fxq "$REQUIRED" <<<"$ASSETS" || { echo "Missing release asset: $REQUIRED"; exit 1; }
+          done
+
+          echo "Qualified SHA: $HEAD_SHA"
+          cat release/SHA256SUMS.txt
           gh release view forgecad-v1.1.1 --repo "$REPO" --json url,tagName,targetCommitish,assets
