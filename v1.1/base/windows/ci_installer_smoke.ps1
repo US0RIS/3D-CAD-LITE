@@ -8,17 +8,24 @@ if (-not (Test-Path -LiteralPath $Setup -PathType Leaf)) {
 }
 $Setup = (Resolve-Path -LiteralPath $Setup).Path
 
-# Use an explicit, isolated install root so the CI test never depends on the
-# runner account's LocalAppData, Inno Setup's default directory, or a previous
-# ForgeCAD installation.
-$Target = Join-Path $env:RUNNER_TEMP "ForgeCAD-v1.1.1-installed"
-if ([string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
-    $Target = Join-Path $env:TEMP "ForgeCAD-v1.1.1-installed"
+# Use an explicit, isolated install root so CI never depends on LocalAppData,
+# Inno Setup's default directory, or a previous ForgeCAD installation.
+$TempRoot = $env:RUNNER_TEMP
+if ([string]::IsNullOrWhiteSpace($TempRoot)) {
+    $TempRoot = [IO.Path]::GetTempPath()
 }
+$Target = Join-Path $TempRoot "ForgeCAD-v1.1.1-installed"
+$InstallLog = Join-Path $TempRoot "ForgeCAD-v1.1.1-install.log"
+$SelfTestOut = Join-Path $TempRoot "ForgeCAD-v1.1.1-selftest.stdout.log"
+$SelfTestErr = Join-Path $TempRoot "ForgeCAD-v1.1.1-selftest.stderr.log"
+
 if (Test-Path -LiteralPath $Target) {
     Remove-Item -LiteralPath $Target -Recurse -Force
 }
 New-Item -ItemType Directory -Path $Target -Force | Out-Null
+foreach ($Log in @($InstallLog, $SelfTestOut, $SelfTestErr)) {
+    if (Test-Path -LiteralPath $Log) { Remove-Item -LiteralPath $Log -Force }
+}
 
 Write-Host "Installing candidate from: $Setup"
 Write-Host "CI install directory: $Target"
@@ -27,16 +34,21 @@ $InstallArgs = @(
     '/SUPPRESSMSGBOXES',
     '/NORESTART',
     '/SP-',
-    "/DIR=$Target"
+    "/DIR=`"$Target`"",
+    "/LOG=`"$InstallLog`""
 )
 $Install = Start-Process -FilePath $Setup -ArgumentList $InstallArgs -Wait -PassThru
 if ($Install.ExitCode -ne 0) {
+    if (Test-Path -LiteralPath $InstallLog) {
+        Write-Host "----- Inno Setup install log -----"
+        Get-Content -LiteralPath $InstallLog | Write-Host
+        Write-Host "----- end install log -----"
+    }
     throw "Installer returned exit code $($Install.ExitCode)"
 }
 
-# Do not assume the executable is directly at the requested root.  Inno Setup
-# configuration can legitimately add a directory level; what matters is that
-# the installed payload contains exactly one runnable ForgeCAD executable.
+# Do not assume an exact directory layout. PyInstaller one-dir payloads place
+# support files under _internal, while Inno Setup is free to add directories.
 $Executables = @(Get-ChildItem -LiteralPath $Target -Filter 'ForgeCAD.exe' -File -Recurse)
 if ($Executables.Count -eq 0) {
     $Tree = (Get-ChildItem -LiteralPath $Target -Recurse | ForEach-Object FullName) -join "`n"
@@ -49,35 +61,51 @@ $Exe = $Executables[0].FullName
 $ExeDir = Split-Path -Parent $Exe
 Write-Host "Running installed candidate self-test: $Exe"
 
-# Run from the installed application's own directory.  PyInstaller one-dir
-# applications may resolve bundled resources relative to the executable/CWD;
-# launching from the workflow checkout can make an otherwise valid installed
-# package fail only in CI.
-Push-Location $ExeDir
-try {
-    & $Exe '--self-test'
-    $SelfTestExit = $LASTEXITCODE
-} finally {
-    Pop-Location
+# ForgeCAD is deliberately built as a Windows GUI subsystem executable
+# (PyInstaller console=False). PowerShell's direct '& exe' invocation does not
+# reliably wait for GUI applications and can leave $LASTEXITCODE unset. Use a
+# real process handle, wait for termination, and inspect Process.ExitCode.
+$SelfTest = Start-Process -FilePath $Exe -ArgumentList @('--self-test') -WorkingDirectory $ExeDir -RedirectStandardOutput $SelfTestOut -RedirectStandardError $SelfTestErr -Wait -PassThru
+if (Test-Path -LiteralPath $SelfTestOut) {
+    $OutText = Get-Content -LiteralPath $SelfTestOut -Raw
+    if (-not [string]::IsNullOrWhiteSpace($OutText)) { Write-Host $OutText }
 }
-if ($null -eq $SelfTestExit) {
-    throw "Installed application self-test did not return an exit code"
+if (Test-Path -LiteralPath $SelfTestErr) {
+    $ErrText = Get-Content -LiteralPath $SelfTestErr -Raw
+    if (-not [string]::IsNullOrWhiteSpace($ErrText)) { Write-Host $ErrText }
 }
-if ($SelfTestExit -ne 0) {
-    throw "Installed application self-test returned exit code $SelfTestExit"
+if ($SelfTest.ExitCode -ne 0) {
+    throw "Installed application self-test returned exit code $($SelfTest.ExitCode)"
 }
 Write-Host "Installed ForgeCAD self-test passed."
 
-# Validate that the generated installer also produced a usable uninstaller,
-# then remove the test installation to avoid contaminating subsequent jobs.
-$Uninstallers = @(Get-ChildItem -LiteralPath $Target -Filter 'unins*.exe' -File)
-if ($Uninstallers.Count -gt 0) {
-    $Uninstall = Start-Process -FilePath $Uninstallers[0].FullName -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
-    if ($Uninstall.ExitCode -ne 0) {
-        throw "Uninstaller returned exit code $($Uninstall.ExitCode)"
+# Qualify the installed payload, not merely the pre-installer dist directory.
+$RequiredAssets = @(
+    @{ Name = 'raspberry_pi_5_official.step'; MinimumBytes = 1000000 },
+    @{ Name = 'raspberry_pi_4_model_b_parametric.step'; MinimumBytes = 100000 },
+    @{ Name = 'pololu_d24v50f5_official.step'; MinimumBytes = 1000000 }
+)
+foreach ($Required in $RequiredAssets) {
+    $Matches = @(Get-ChildItem -LiteralPath $Target -Filter $Required.Name -File -Recurse)
+    if ($Matches.Count -ne 1) {
+        throw "Expected exactly one installed $($Required.Name); found $($Matches.Count)"
     }
-} elseif (Test-Path -LiteralPath $Target) {
-    Remove-Item -LiteralPath $Target -Recurse -Force
+    if ($Matches[0].Length -lt $Required.MinimumBytes) {
+        throw "Installed $($Required.Name) is implausibly small: $($Matches[0].Length) bytes"
+    }
+    Write-Host "Verified installed authoritative CAD: $($Required.Name) ($($Matches[0].Length) bytes)"
+}
+
+# Validate that the installer generated a usable uninstaller and clean up the
+# isolated installation. Keep this separate from the application self-test so
+# uninstall behavior cannot hide an application qualification failure.
+$Uninstallers = @(Get-ChildItem -LiteralPath $Target -Filter 'unins*.exe' -File -Recurse)
+if ($Uninstallers.Count -eq 0) {
+    throw "Installed candidate did not contain an Inno Setup uninstaller"
+}
+$Uninstall = Start-Process -FilePath $Uninstallers[0].FullName -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+if ($Uninstall.ExitCode -ne 0) {
+    throw "Uninstaller returned exit code $($Uninstall.ExitCode)"
 }
 
 Write-Host "Windows installed-candidate qualification passed."
