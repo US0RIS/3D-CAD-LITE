@@ -78,7 +78,15 @@ def self_test():
     if len(components.REGISTRY)<200:raise RuntimeError("Component registry incomplete")
     obj=core.PROJECT["objects"][0];m=core.object_metrics(obj);mesh=core.tessellate(obj,.5);a=analysis.quick_cantilever(obj,100)
     assert m["volume_mm3"]>0 and mesh["triangles"] and a["yield_fos"]>0
-    print(json.dumps({"ok":True,"build":BUILD_ID,"component_count":len(components.REGISTRY),"volume_mm3":m["volume_mm3"]}));return 0
+    result=json.dumps({"ok":True,"build":BUILD_ID,"component_count":len(components.REGISTRY),"volume_mm3":m["volume_mm3"]})
+    # PyInstaller windowed/GUI builds intentionally have no console on Windows;
+    # sys.stdout may therefore be None even when launched with --self-test.
+    # Qualification is exit-code authoritative, so diagnostic output is best-effort.
+    out=getattr(sys,"stdout",None)
+    if out is not None:
+        try:out.write(result+"\n");out.flush()
+        except Exception:pass
+    return 0
 def run_ui():
     frontend_preflight();ensure_ollama();base=start_embedded();warm_model();import webview
     webview.create_window("ForgeCAD",url=base+f"/?build={BUILD_ID}",width=1600,height=980,min_size=(1050,680),background_color="#090c10",text_select=True)
